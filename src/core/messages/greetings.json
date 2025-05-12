@@ -1,10 +1,12 @@
 {
     "welcome": [
-        "Olá! Para iniciar o atendimento, por favor digite seu CPF:",
-        "Bem-vindo! Para começar, preciso que você informe seu CPF:",
-        "Olá! Para prosseguir com o atendimento, digite seu CPF:"
+        "Olá! Para iniciar o atendimento, por favor digite seu CPF ou número de matrícula:",
+        "Bem-vindo! Para começar, preciso que você informe seu CPF ou matrícula:",
+        "Olá! Para prosseguir com o atendimento, digite seu CPF ou matrícula:"
     ],
-    "chooseSchool": "Você está vinculado(a) a mais de uma escola/cidade. Com qual deseja seguir?",
+    "chooseType": "Você possui mais de um tipo de vínculo.\nPor favor, selecione o tipo de acesso:\n",
+    "chooseCity": "Você possui vínculo em mais de uma cidade.\nPor favor, selecione a cidade:\n",
+    "chooseSchool": "Você possui vínculo em mais de uma escola.\nPor favor, selecione a escola:\n",
     "confirmSchool": "Atendimento vinculado à escola: %s",
     "attendantAvailable": "Olá %s! Um atendente está disponível agora para ajudá-lo.",
     "queueUpdate": "Atualização: %s, sua posição atual na fila é %dº lugar.",

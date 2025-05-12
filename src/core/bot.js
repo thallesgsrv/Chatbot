@@ -16,6 +16,7 @@ const User = require('../models/entities/user.js');
 const School = require('../models/entities/school.js');
 const Call = require('../models/entities/call.js');
 const UserTelephone = require('../models/entities/usertelephone.js');
+const UserSchool = require('../models/entities/userschool.js');
 const { Op } = require('sequelize');
 
 //Importar mensagens e diálogos                                            
@@ -313,7 +314,7 @@ async function startListeningForMessages(conn, io) {
 
             const messageText = newMsg.result.body.trim();
 
-            // --- INÍCIO DA TRIAGEM: Solicitar CPF ---
+            //Solicitar CPF
             if (!userCurrentTopic[chatId]) {
                 // (mensagem aleatória)
                 await sendMessage(conn, chatId, getRandomWelcomeMessage());
@@ -321,92 +322,208 @@ async function startListeningForMessages(conn, io) {
                 return;
             }
 
-            // --- Recebe CPF e busca usuário ---
+            //Recebe CPF/Matrícula e busca usuário
             if (userCurrentTopic[chatId]?.state === 'awaitingCpf') {
-                const cpf = messageText.replace(/\D/g, '');
-                if (!cpf || cpf.length < 11) {
-                    await sendMessage(conn, chatId, errors.invalidCpf);
-                    return;
-                }
-                // Buscar usuário pelo CPF
-                const user = await User.findOne({ where: { cpf } });
-                if (!user) {
-                    await sendMessage(conn, chatId, errors.userNotFound);
+                const identifier = messageText.replace(/\D/g, '');
+                if (!identifier || identifier.length < 5) {
+                    await sendMessage(conn, chatId, errors.invalidIdentifier);
                     return;
                 }
 
-                // Buscar escolas vinculadas (tabela de associação)
-                const userSchools = await user.getSchools();
-                if (!userSchools || userSchools.length === 0) {
-                    await sendMessage(conn, chatId, errors.noSchoolLinked);
-                    return;
-                }
-
-                // Montar lista de escolas/cidades
-                if (userSchools.length === 1) {
-                    // Só uma escola/cidade, seguir fluxo
-                    const school = userSchools[0];
-                    userCurrentTopic[chatId] = {
-                        state: 'cpfTriaged',
-                        userId: user.id,
-                        userName: user.name,
-                        userType: user.type,
-                        schoolId: school.id,
-                        schoolName: school.name,
-                        city: school.client
-                    };
-                    await sendMessage(conn, chatId, greetings.confirmSchool.replace('%s', `${school.name} - ${school.client}`));
-                    // Prosseguir para o fluxo normal (ex: pedir problema)
-                    await sendProblemOptions(conn, chatId);
-                    userCurrentTopic[chatId] = 'problema';
-                } else {
-                    // Múltiplas escolas/cidades, pedir escolha
-                    let msg = greetings.chooseSchool + '\n';
-                    userSchools.forEach((school, idx) => {
-                        msg += `${idx + 1}. ${school.name} - ${school.client}\n`;
+                try {
+                    // Buscar usuário pelo identifier (CPF ou matrícula)
+                    const users = await User.findAll({
+                        where: { identifier },
+                        include: [{
+                            model: School,
+                            through: 'userschool',
+                            required: true
+                        }]
                     });
-                    await sendMessage(conn, chatId, msg.trim());
-                    userCurrentTopic[chatId] = {
-                        state: 'awaitingSchoolSelection',
-                        userId: user.id,
-                        userName: user.name,
-                        userType: user.type,
-                        schools: userSchools.map(s => ({
-                            id: s.id,
-                            name: s.name,
-                            city: s.client
-                        }))
-                    };
+
+                    if (!users || users.length === 0) {
+                        await sendMessage(conn, chatId, errors.userNotFound);
+                        return;
+                    }
+
+                    // Group users by type, school and city
+                    const usersByType = new Map();
+                    const schoolsByTypeCity = new Map();
+                    
+                    users.forEach(user => {
+                        // Group by type
+                        if (!usersByType.has(user.type)) {
+                            usersByType.set(user.type, user);
+                        }
+
+                        user.schools.forEach(school => {
+                            const key = `${user.type}_${school.client}`;
+                            if (!schoolsByTypeCity.has(key)) {
+                                schoolsByTypeCity.set(key, {
+                                    type: user.type,
+                                    city: school.client,
+                                    schools: new Set()
+                                });
+                            }
+                            schoolsByTypeCity.get(key).schools.add({
+                                id: school.id,
+                                name: school.name,
+                                client: school.client,
+                                userId: user.id,
+                                userType: user.type,
+                                userName: user.name,
+                                iescolarId: user.iescolarId
+                            });
+                        });
+                    });
+
+                    const types = Array.from(usersByType.keys());
+
+                    if (types.length > 1) {
+                        // Ask for role selection first
+                        let msg = greetings.chooseType;
+                        types.forEach((type, idx) => {
+                            msg += `${idx + 1} - ${type}\n`;
+                        });
+
+                        userCurrentTopic[chatId] = {
+                            state: 'awaitingTypeSelection',
+                            types: types,
+                            schoolsByTypeCity: schoolsByTypeCity,
+                            identifier: identifier
+                        };
+
+                        await sendMessage(conn, chatId, msg.trim());
+                        return;
+                    }
+
+                    // Single type, check cities
+                    const type = types[0];
+                    const citiesByType = Array.from(schoolsByTypeCity.values())
+                        .filter(entry => entry.type === type);
+
+                    if (citiesByType.length > 1) {
+                        // Ask for city selection
+                        let msg = greetings.chooseCity;
+                        citiesByType.forEach((entry, idx) => {
+                            msg += `${idx + 1} - ${entry.city}\n`;
+                        });
+
+                        userCurrentTopic[chatId] = {
+                            state: 'awaitingCitySelection',
+                            type: type,
+                            cities: citiesByType,
+                            schoolsByTypeCity: schoolsByTypeCity,
+                            identifier: identifier
+                        };
+
+                        await sendMessage(conn, chatId, msg.trim());
+                        return;
+                    }
+
+                    // Single city, check schools
+                    const citySchools = Array.from(citiesByType[0].schools);
+
+                    if (citySchools.length > 1) {
+                        // Ask for school selection
+                        let msg = greetings.chooseSchool;
+                        citySchools.forEach((school, idx) => {
+                            msg += `${idx + 1} - ${school.name}\n`;
+                        });
+
+                        userCurrentTopic[chatId] = {
+                            state: 'awaitingSchoolSelection',
+                            schools: citySchools,
+                            type: type,
+                            city: citiesByType[0].city,
+                            identifier: identifier
+                        };
+
+                        await sendMessage(conn, chatId, msg.trim());
+                        return;
+                    }
+
+                    // Single everything - proceed with the only option
+                    const school = citySchools[0];
+                    await proceedWithSchoolSelection(conn, chatId, school, io);
+                } catch (error) {
+                    console.error('Erro durante triagem:', error);
+                    await sendMessage(conn, chatId, errors.tryAgainLater);
+                    delete userCurrentTopic[chatId];
                 }
                 return;
             }
 
-            // --- Recebe escolha da escola/cidade ---
-            if (userCurrentTopic[chatId]?.state === 'awaitingSchoolSelection') {
-                const selection = parseInt(messageText, 10);
-                const schools = userCurrentTopic[chatId].schools;
-                if (!selection || selection < 1 || selection > schools.length) {
-                    await sendMessage(conn, chatId, errors.invalidSchoolSelection);
+            // Add new state handlers
+            if (userCurrentTopic[chatId]?.state === 'awaitingTypeSelection') {
+                const selection = parseInt(messageText, 10) - 1;
+                const types = userCurrentTopic[chatId].types;
+                const schoolsByTypeCity = userCurrentTopic[chatId].schoolsByTypeCity;
+
+                if (selection < 0 || selection >= types.length) {
+                    await sendMessage(conn, chatId, errors.invalidOption);
                     return;
                 }
-                const chosen = schools[selection - 1];
-                userCurrentTopic[chatId] = {
-                    state: 'cpfTriaged',
-                    userId: userCurrentTopic[chatId].userId,
-                    userName: userCurrentTopic[chatId].userName,
-                    userType: userCurrentTopic[chatId].userType,
-                    schoolId: chosen.id,
-                    schoolName: chosen.name,
-                    city: chosen.city
-                };
-                await sendMessage(conn, chatId, greetings.confirmSchool.replace('%s', `${chosen.name} - ${chosen.city}`));
-                // Prosseguir para o fluxo normal (ex: pedir problema)
-                await sendProblemOptions(conn, chatId);
-                userCurrentTopic[chatId] = 'problema';
+
+                const selectedType = types[selection];
+                const citiesByType = Array.from(schoolsByTypeCity.values())
+                    .filter(entry => entry.type === selectedType);
+
+                if (citiesByType.length > 1) {
+                    let msg = greetings.chooseCity;
+                    citiesByType.forEach((entry, idx) => {
+                        msg += `${idx + 1} - ${entry.city}\n`;
+                    });
+
+                    userCurrentTopic[chatId] = {
+                        state: 'awaitingCitySelection',
+                        type: selectedType,
+                        cities: citiesByType,
+                        schoolsByTypeCity: schoolsByTypeCity,
+                        identifier: userCurrentTopic[chatId].identifier
+                    };
+
+                    await sendMessage(conn, chatId, msg.trim());
+                    return;
+                }
+
+                // Single city, check schools
+                const citySchools = Array.from(citiesByType[0].schools);
+                await handleSchoolSelection(conn, chatId, citySchools, selectedType, citiesByType[0].city, io);
                 return;
             }
 
-            // --- Fluxo normal após triagem ---
+            if (userCurrentTopic[chatId]?.state === 'awaitingCitySelection') {
+                const selection = parseInt(messageText, 10) - 1;
+                const cities = userCurrentTopic[chatId].cities;
+
+                if (selection < 0 || selection >= cities.length) {
+                    await sendMessage(conn, chatId, errors.invalidOption);
+                    return;
+                }
+
+                const selectedCity = cities[selection];
+                const citySchools = Array.from(selectedCity.schools);
+                await handleSchoolSelection(conn, chatId, citySchools, userCurrentTopic[chatId].type, selectedCity.city, io);
+                return;
+            }
+
+            // Modify existing school selection handler
+            if (userCurrentTopic[chatId]?.state === 'awaitingSchoolSelection') {
+                const selection = parseInt(messageText, 10) - 1;
+                const schools = userCurrentTopic[chatId].schools;
+
+                if (selection < 0 || selection >= schools.length) {
+                    await sendMessage(conn, chatId, errors.invalidOption);
+                    return;
+                }
+
+                const chosen = schools[selection];
+                await proceedWithSchoolSelection(conn, chatId, chosen, io);
+                return;
+            }
+
+            //Fluxo normal após triagem
             await handleUserMessage(conn, chatId, messageText, io);
             
         } catch (error) {
@@ -435,6 +552,69 @@ async function startListeningForMessages(conn, io) {
             handleChatClosed(chatId, io);
         }
     });
+}
+
+// Helper function to handle school selection display
+async function handleSchoolSelection(conn, chatId, schools, type, city, io) {
+    if (schools.length > 1) {
+        let msg = greetings.chooseSchool;
+        schools.forEach((school, idx) => {
+            msg += `${idx + 1} - ${school.name}\n`;
+        });
+
+        userCurrentTopic[chatId] = {
+            state: 'awaitingSchoolSelection',
+            schools: schools,
+            type: type,
+            city: city,
+            identifier: userCurrentTopic[chatId].identifier
+        };
+
+        await sendMessage(conn, chatId, msg.trim());
+    } else {
+        // Single school
+        await proceedWithSchoolSelection(conn, chatId, schools[0], io);
+    }
+}
+
+// Helper function to proceed with the selected school
+async function proceedWithSchoolSelection(conn, chatId, school, io) {
+    userCurrentTopic[chatId] = {
+        state: 'cpfTriaged',
+        userId: school.userId,
+        userName: school.userName,
+        userType: school.userType,
+        schoolId: school.id,
+        schoolName: school.name,
+        city: school.client,
+        iescolarId: school.iescolarId
+    };
+
+    if (conn.client && conn.client.ev) {
+        conn.client.ev.emit('userTriaged', {
+            chatId,
+            userData: userCurrentTopic[chatId]
+        });
+    }
+
+    await Call.create({
+        description: 'Início de atendimento',
+        position: school.userType,
+        status: 'PENDING',
+        createDate: new Date(),
+        chatId: chatId,
+        userId: school.userId,
+        schoolId: school.id
+    });
+
+    await sendMessage(
+        conn,
+        chatId,
+        greetings.confirmSchool.replace('%s', `${school.name} - ${school.client} (${school.userType})`)
+    );
+    
+    await sendProblemOptions(conn, chatId);
+    userCurrentTopic[chatId] = 'problema';
 }
 
 async function checkIgnoredContact(chatId) {
