@@ -35,7 +35,10 @@ async function fetchSystemData() {
                 order: [['createDate', 'DESC']],
                 limit: 3,
                 include: [
-                    { model: User },
+                    { 
+                        model: User,
+                        as: 'user'
+                    },
                     { model: Attendant }
                 ]
             }),
@@ -43,7 +46,10 @@ async function fetchSystemData() {
                 where: { status: 'WAITING' },
                 order: [['createDate', 'ASC']],
                 include: [
-                    { model: User },
+                    { 
+                        model: User,
+                        as: 'user'
+                    },
                     { model: Attendant }
                 ]
             }),
@@ -51,7 +57,10 @@ async function fetchSystemData() {
                 where: { status: 'PENDING' },
                 order: [['createDate', 'DESC']],
                 include: [
-                    { model: User },
+                    { 
+                        model: User,
+                        as: 'user'
+                    },
                     { model: Attendant }
                 ]
             })
@@ -183,6 +192,7 @@ app.whenReady().then(async () => {
     try {
         await sequelize.authenticate();
         await sequelize.sync();
+        await sequelize.importCsvData();
         createWindow();
         setupIpcHandlers();
         startHydraBot(io);

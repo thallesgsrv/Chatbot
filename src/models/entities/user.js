@@ -1,6 +1,6 @@
-
 const School = require('./school.js')
 const Call = require('./call.js')
+const UserTelephone = require('./usertelephone.js')
 const sequelize = require('../connections/connection.js')
 const {DataTypes} = require('sequelize');
 const { fr } = require('date-fns/locale');
@@ -15,8 +15,7 @@ const User = sequelize.define(
         },
         identifier: {
             type: DataTypes.STRING,
-            allowNull: false,
-            unique: true,
+            allowNull: true
         },
         iescolarId: {
             type: DataTypes.BIGINT,
@@ -27,7 +26,7 @@ const User = sequelize.define(
             allowNull: false,
         },
         type: {
-            type: DataTypes.ENUM('ALUNO', 'PROFESSOR', 'SECRETÁRIO', 'ADMINISTRADOR', 'RESPONSÁVEL'),
+            type: DataTypes.ENUM('ALUNO', 'PROFESSOR', 'SECRETARIO', 'ADMINISTRADOR', 'RESPONSAVEL', 'PEDAGOGO','MOTORISTA'),
             allowNull: false,
         },
     },
@@ -45,6 +44,10 @@ User.belongsToMany(School, {
     otherKey: 'idSchool',
     timestamps: false,
 })
+
+User.hasMany(UserTelephone, {
+    foreignKey: 'idUser'
+});
 
 // Exportações
 module.exports = User

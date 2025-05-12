@@ -1,4 +1,3 @@
-const User = require('./user.js');
 const sequelize = require('../connections/connection.js')
 const {DataTypes} = require('sequelize');
 
@@ -8,9 +7,8 @@ const UserTelephone = sequelize.define(
         idUser: {
             type: DataTypes.BIGINT,
             references: {
-                model: User,
+                model: 'user',  // Reference the table name instead of the model
                 key: 'id',
-                
             },
             primaryKey: true,
         },
