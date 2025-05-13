@@ -5,6 +5,7 @@ const School = require('../models/entities/school.js');
 const Call = require('../models/entities/call.js');
 const Card = require('../models/entities/card.js');
 const Attendant = require('../models/entities/attendant.js');
+const CreateCall = require('../models/entities/createcall.js');
 const { Op, fn, col, literal } = require('sequelize');
 const { generateXLSXReport } = require('../core/reports/templates/xlsx/report.template.js');
 const { generatePDFReport } = require('../core/reports/templates/pdf/report.template.js');
@@ -14,7 +15,7 @@ router.get('/api/reports/generateReport', async (req, res) => {
         const { start, end, format, city, school } = req.query;
         
         let where = {
-            createDate: {
+            '$createcall.date$': {
                 [Op.between]: [new Date(start), new Date(end)]
             },
             description: { [Op.ne]: null }
@@ -26,6 +27,10 @@ router.get('/api/reports/generateReport', async (req, res) => {
         const problems = await Call.findAll({
             where,
             include: [
+                {
+                    model: CreateCall,
+                    attributes: ['date']
+                },
                 {
                     model: Card,
                     attributes: ['link', 'status']
@@ -39,7 +44,7 @@ router.get('/api/reports/generateReport', async (req, res) => {
                     attributes: ['name']
                 }
             ],
-            order: [['createDate', 'DESC']]
+            order: [[{ model: CreateCall }, 'date', 'DESC']]
         });
 
         const formattedProblems = problems.map(problem => ({
@@ -49,10 +54,10 @@ router.get('/api/reports/generateReport', async (req, res) => {
             city: problem.school?.city,
             position: problem.position,
             status: problem.status,
-            formatted_date: problem.createDate.toLocaleString('pt-BR'),
+            formatted_date: problem.createcall.date.toLocaleString('pt-BR'),
             formatted_date_completed: problem.dateTimeFinish?.toLocaleString('pt-BR'),
             duration_minutes: problem.dateTimeFinish ? 
-                Math.floor((problem.dateTimeFinish - problem.createDate) / (1000 * 60)) : null,
+                Math.floor((problem.dateTimeFinish - problem.createcall.date) / (1000 * 60)) : null,
             attendant_id: problem.attendant?.name || 'Bot',
             card_link: problem.card?.link || 'Não foi necessário',
             card_status: problem.card?.status || 'Não foi necessário'

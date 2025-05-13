@@ -1,117 +1,96 @@
-# WhatsApp Chatbot 🤖
+# WhatsApp Support Chatbot 🤖
 
-A specialized WhatsApp chatbot solution for educational institutions that provides automated technical support and features a comprehensive real-time dashboard for monitoring and managing support tickets.
+An enterprise-grade WhatsApp chatbot system designed for educational institutions, featuring automated technical support, ticket management, and a real-time administrative dashboard.
 
-## 📋 Key Features
+## 🌟 Overview
 
-- 🤖 **Automated Support System**
-  - Intelligent problem categorization
-  - Video tutorial suggestions
-  - Automated queue management
-  - Real-time status updates
+This system streamlines technical support operations by:
+- Automating support ticket creation and management
+- Providing real-time monitoring and analytics
+- Managing support staff workload
+- Collecting quality metrics and feedback
 
-- 📊 **Administrative Dashboard**
-  - Real-time conversation monitoring
-  - Statistical analysis and reporting
-  - Queue management system
-  - User tracking and analytics
+## 🛠 Technical Stack
 
-- 🛠 **Technical Features**
-  - SQLite database integration
-  - Electron-based desktop application
-  - WebSocket real-time communications
-  - PDF and Excel report generation
+- **Backend**
+  - Node.js + Express.js
+  - PostgreSQL + Sequelize ORM
+  - WebSocket for real-time communications
+  - WhatsApp Business API integration
 
-## 🚀 Getting Started
+- **Frontend**
+  - Chart.js for analytics
+  - Socket.io for real-time updates
+
+## 📋 Features
+
+### Core Functionality
+- **Ticket System**
+  ```
+  PENDING → ACTIVE → WAITING → COMPLETED
+  ```
+- **Queue Management**
+  - Dynamic position tracking
+  - Priority handling
+  - Auto-assignment
+
+### Analytics & Reporting
+- Support quality metrics (1-5 stars)
+- Response time tracking
+- Staff performance monitoring
+- Custom report generation (PDF/Excel)
+
+## ⚙️ Installation
 
 ### Prerequisites
-
-- Node.js (v22.11.0)
-- SQLite3
-- WhatsApp Business API access
-- Windows
-
-### Installation
-
 ```bash
-# Clone the repository
+Node.js >= 14.x
+PostgreSQL >= 12
+WhatsApp Business API credentials
+```
+
+### Setup Steps
+```bash
+# 1. Clone repository
 git clone https://github.com/syze77/Chatbot.git
+cd Chatbot
 
-# Enter directory
-cd chatbot
-
-# Install dependencies
+# 2. Install dependencies
 npm install
+
+# 3. Start application
+npm run start   
 ```
 
-## 💻 Usage
+## 🔧 Configuration
 
+### Environment Variables
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=chatbot
+DB_USER=your_user
+DB_PASS=your_password
+
+
+## 👩‍💻 Development
+
+### Available Scripts
 ```bash
-# Start the application
-npm start
-
-# Run in development mode
-npm run dev
+npm run dist     # Start build application
+npm start        # Start application
+npm run dev      # Start both with hot reload
 ```
-
-## 📚 Features Documentation
-
-### Chat Management
-- Automated user information collection
-- Problem categorization system
-- Video tutorial suggestions
-- Queue position updates
-- Human agent handoff capability
-
-### Administrative Features
-- Real-time conversation monitoring
-- Statistical reports generation
-- Active chat management
-- Problem tracking system
-
-### Reporting
-- PDF report generation
-- Excel export functionality
-- Customizable date ranges
-- Filtered by city and school
-
-## 🔧 Troubleshooting
-
-Common issues and solutions:
-
-1. **WhatsApp Connection Issues**
-   - Verify API credentials
-   - Check internet connection
-   - Ensure proper session management
-
-2. **Database Issues**
-   - Check SQLite file permissions
-   - Verify database path
-   - Ensure proper initialization
 
 ## 🤝 Contributing
 
-We welcome contributions! Please follow these steps:
-
-1. Fork the project
-2. Create your feature branch (`git checkout -b feature/NewFeature`)
-3. Commit your changes (`git commit -m 'Add NewFeature'`)
-4. Push to the branch (`git push origin feature/NewFeature`)
-5. Open a pull request
-
-### Development Guidelines
-
-- Follow existing code structure
-- Add appropriate error handling
-- Document new features
-- Test thoroughly before submitting
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Please read our [Contributing Guidelines](CONTRIBUTING.md) before submitting PRs.
 
 ## 📞 Support
 
-For technical support and inquiries:
-- Email: gabrielthalles19@gmail.com
-- GitHub Issues: [Create an issue](https://github.com/syze77/Chatbot/issues)
+- Technical Issues: [GitHub Issues](https://github.com/syze77/Chatbot/issues)
+- Email Support: gabrielthalles19@gmail.com
+
+## 📄 License
+
+MIT License - [LICENSE](LICENSE)

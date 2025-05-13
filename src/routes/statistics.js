@@ -4,6 +4,7 @@ const User  = require('../models/entities/user.js');
 const School = require('../models/entities/school.js');
 const Call = require('../models/entities/call.js');
 const Attendant = require('../models/entities/attendant.js');
+const CreateCall = require('../models/entities/createcall.js');
 const { Op, literal, fn, col } = require('sequelize');
 
 router.get('/api/statistics/getChartData', async (req, res) => {
@@ -28,21 +29,24 @@ router.get('/api/statistics/getChartData', async (req, res) => {
         // Monthly data
         const monthlyData = await Call.findAll({
             attributes: [
-                [fn('date_part', 'month', col('createDate')), 'month'],
+                [fn('date_part', 'month', col('createcall.date')), 'month'],
                 [fn('count', '*'), 'count']
             ],
             where: {
                 ...where,
-                createDate: {
+                '$createcall.date$': {
                     [Op.between]: [startOfYear, endOfYear]
                 }
             },
             include: [{
+                model: CreateCall,
+                attributes: []
+            }, {
                 model: School,
                 attributes: []
             }],
-            group: [fn('date_part', 'month', col('createDate'))],
-            order: [[fn('date_part', 'month', col('createDate')), 'ASC']]
+            group: [fn('date_part', 'month', col('createcall.date'))],
+            order: [[fn('date_part', 'month', col('createcall.date')), 'ASC']]
         });
 
         // Weekly data
@@ -51,21 +55,24 @@ router.get('/api/statistics/getChartData', async (req, res) => {
         
         const weeklyData = await Call.findAll({
             attributes: [
-                [fn('date', col('createDate')), 'date'],
+                [fn('date', col('createcall.date')), 'date'],
                 [fn('count', '*'), 'count']
             ],
             where: {
                 ...where,
-                createDate: {
+                '$createcall.date$': {
                     [Op.between]: [startOfWeek, new Date()]
                 }
             },
             include: [{
+                model: CreateCall,
+                attributes: []
+            }, {
                 model: School,
                 attributes: []
             }],
-            group: [fn('date', col('createDate'))],
-            order: [[col('createDate'), 'ASC']]
+            group: [fn('date', col('createcall.date'))],
+            order: [[col('createcall.date'), 'ASC']]
         });
 
         const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 
@@ -132,6 +139,10 @@ router.get('/api/statistics/getCompletedAttendances', async (req, res) => {
                 {
                     model: Attendant,
                     attributes: ['name']
+                },
+                {
+                    model: CreateCall,
+                    attributes: ['date']
                 }
             ],
             order: [['dateTimeFinish', 'DESC']]
@@ -144,9 +155,9 @@ router.get('/api/statistics/getCompletedAttendances', async (req, res) => {
             school: att.school?.name,
             client: att.school?.client,
             attendant: att.attendant?.name || 'Bot',
-            date: att.createDate.toLocaleString('pt-BR'),
+            date: att.createcall.date.toLocaleString('pt-BR'),
             date_completed: att.dateTimeFinish.toLocaleString('pt-BR'),
-            duration_minutes: Math.floor((att.dateTimeFinish - att.createDate) / (1000 * 60))
+            duration_minutes: Math.floor((att.dateTimeFinish - att.createcall.date) / (1000 * 60))
         }));
 
         res.json(formattedAttendances);
