@@ -11,13 +11,17 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const { handleRecovery } = require('./recovery.js'); 
 const { getRecentContacts } = require('./contacts/getcontacts.js');
-const ServiceFeedback = require('./modules/ServiceFeedback');
-const User = require('../models/entities/user.js');
-const School = require('../models/entities/school.js');
-const Call = require('../models/entities/call.js');
-const UserTelephone = require('../models/entities/usertelephone.js');
-const UserSchool = require('../models/entities/userschool.js');
-const { Op } = require('sequelize');
+const ServiceFeedback = require('./modules/serviceFeedback');
+const Screening = require('./modules/screening');
+
+// Import Sequelize models
+const { Call } = require('../models/entities/call');
+const { User } = require('../models/entities/user');
+const { School } = require('../models/entities/school');
+const { CreateCall } = require('../models/entities/createcall');
+const { Card } = require('../models/entities/card');
+const { Attendant } = require('../models/entities/attendant');
+const sequelize = require('../models/connections/connection');
 
 //Importar mensagens e diálogos                                            
 const greetings = require('./messages/greetings.json');
@@ -68,6 +72,9 @@ const messageHistory = new Map();
 // Add these two new declarations
 const processedEvents = new Set();
 const EVENT_TIMEOUT = 2000; 
+
+// Adicionar instância do Screening
+const screening = new Screening();
 
 /**
  * Template de boas-vindas e coleta de informações
@@ -122,7 +129,7 @@ async function startHydraBot(io) {
 
         // Atualizar status do problema no banco de dados
         await Call.update(
-          { status: 'ACTIVE', attendant_id: attendantId },
+          { status: 'ACTIVE', attendantId },
           { where: { chatId, status: 'PENDING' } }
         );
 
@@ -159,7 +166,7 @@ async function startHydraBot(io) {
         // Atualizar status no banco de dados
         await Call.update(
           { status: 'COMPLETED', dateTimeFinish: new Date() },
-          { where: { chatId, [Op.or]: [{ id }, { status: 'ACTIVE' }, { status: 'PENDING' }] } }
+          { where: { chatId, id } }
         );
 
         delete userCurrentTopic[chatId];
@@ -220,14 +227,14 @@ function setupSocketListeners(io) {
                 console.log('Recebendo solicitação de criação de card:', data);
                 const { chatId, cardLink } = data;
                 
-                const newCard = await Call.create({
-                  chatId,
-                  card_link: cardLink,
-                  card_status: 'PENDING'
+                const card = await Card.create({
+                    chatId,
+                    cardLink,
+                    cardStatus: 'PENDING'
                 });
 
-                console.log('Card criado com sucesso:', newCard);
-                io.emit('cardCreated', newCard);
+                console.log('Card criado com sucesso:', card);
+                io.emit('cardCreated', card);
             } catch (error) {
                 console.error('Erro ao processar criação do card:', error);
                 socket.emit('cardError', { error: 'Erro interno do servidor' });
@@ -256,12 +263,12 @@ function setupSocketListeners(io) {
 
                 // 1. Atualizar status para completed imediatamente
                 await Call.update(
-                  { status: 'COMPLETED', dateTimeFinish: new Date() },
-                  { where: { chatId, [Op.or]: [{ id }, { status: 'ACTIVE' }, { status: 'PENDING' }] } }
+                    { status: 'COMPLETED', dateTimeFinish: new Date() },
+                    { where: { chatId, id } }
                 );
 
                 // 2. Emitir atualização imediata da UI
-                const statusData = await fetchCurrentStatus();
+                const statusData = await getStatusUpdate();
                 io.emit('statusUpdate', statusData);
                 io.emit('chatCompleted', { chatId });
 
@@ -312,219 +319,27 @@ async function startListeningForMessages(conn, io) {
                 return;
             }
 
-            const messageText = newMsg.result.body.trim();
+            const messageText = newMsg.result.body.toLowerCase();
 
-            //Solicitar CPF
-            if (!userCurrentTopic[chatId]) {
-                // (mensagem aleatória)
-                await sendMessage(conn, chatId, getRandomWelcomeMessage());
-                userCurrentTopic[chatId] = { state: 'awaitingCpf' };
+            // Verificar se é recuperação de senha
+            const recoveryResponse = await handleRecovery(newMsg.result);
+            if (recoveryResponse) {
+                await sendMessage(conn, chatId, recoveryResponse);
                 return;
             }
 
-            //Recebe CPF/Matrícula e busca usuário
-            if (userCurrentTopic[chatId]?.state === 'awaitingCpf') {
-                const identifier = messageText.replace(/\D/g, '');
-                if (!identifier || identifier.length < 5) {
-                    await sendMessage(conn, chatId, errors.invalidIdentifier);
-                    return;
-                }
-
-                try {
-                    // Buscar usuário pelo identifier (CPF ou matrícula)
-                    const users = await User.findAll({
-                        where: { identifier },
-                        include: [{
-                            model: School,
-                            through: 'userschool',
-                            required: true
-                        }]
-                    });
-
-                    if (!users || users.length === 0) {
-                        await sendMessage(conn, chatId, errors.userNotFound);
-                        return;
-                    }
-
-                    // Group users by type, school and city
-                    const usersByType = new Map();
-                    const schoolsByTypeCity = new Map();
-                    
-                    users.forEach(user => {
-                        // Group by type
-                        if (!usersByType.has(user.type)) {
-                            usersByType.set(user.type, user);
-                        }
-
-                        user.schools.forEach(school => {
-                            const key = `${user.type}_${school.client}`;
-                            if (!schoolsByTypeCity.has(key)) {
-                                schoolsByTypeCity.set(key, {
-                                    type: user.type,
-                                    city: school.client,
-                                    schools: new Set()
-                                });
-                            }
-                            schoolsByTypeCity.get(key).schools.add({
-                                id: school.id,
-                                name: school.name,
-                                client: school.client,
-                                userId: user.id,
-                                userType: user.type,
-                                userName: user.name,
-                                iescolarId: user.iescolarId
-                            });
-                        });
-                    });
-
-                    const types = Array.from(usersByType.keys());
-
-                    if (types.length > 1) {
-                        // Ask for role selection first
-                        let msg = greetings.chooseType;
-                        types.forEach((type, idx) => {
-                            msg += `${idx + 1} - ${type}\n`;
-                        });
-
-                        userCurrentTopic[chatId] = {
-                            state: 'awaitingTypeSelection',
-                            types: types,
-                            schoolsByTypeCity: schoolsByTypeCity,
-                            identifier: identifier
-                        };
-
-                        await sendMessage(conn, chatId, msg.trim());
-                        return;
-                    }
-
-                    // Single type, check cities
-                    const type = types[0];
-                    const citiesByType = Array.from(schoolsByTypeCity.values())
-                        .filter(entry => entry.type === type);
-
-                    if (citiesByType.length > 1) {
-                        // Ask for city selection
-                        let msg = greetings.chooseCity;
-                        citiesByType.forEach((entry, idx) => {
-                            msg += `${idx + 1} - ${entry.city}\n`;
-                        });
-
-                        userCurrentTopic[chatId] = {
-                            state: 'awaitingCitySelection',
-                            type: type,
-                            cities: citiesByType,
-                            schoolsByTypeCity: schoolsByTypeCity,
-                            identifier: identifier
-                        };
-
-                        await sendMessage(conn, chatId, msg.trim());
-                        return;
-                    }
-
-                    // Single city, check schools
-                    const citySchools = Array.from(citiesByType[0].schools);
-
-                    if (citySchools.length > 1) {
-                        // Ask for school selection
-                        let msg = greetings.chooseSchool;
-                        citySchools.forEach((school, idx) => {
-                            msg += `${idx + 1} - ${school.name}\n`;
-                        });
-
-                        userCurrentTopic[chatId] = {
-                            state: 'awaitingSchoolSelection',
-                            schools: citySchools,
-                            type: type,
-                            city: citiesByType[0].city,
-                            identifier: identifier
-                        };
-
-                        await sendMessage(conn, chatId, msg.trim());
-                        return;
-                    }
-
-                    // Single everything - proceed with the only option
-                    const school = citySchools[0];
-                    await proceedWithSchoolSelection(conn, chatId, school, io);
-                } catch (error) {
-                    console.error('Erro durante triagem:', error);
-                    await sendMessage(conn, chatId, errors.tryAgainLater);
-                    delete userCurrentTopic[chatId];
-                }
+            // Continuar com o fluxo normal para outras mensagens
+            /*const isIgnored = await checkIgnoredContact(chatId);
+            if (isIgnored) {
                 return;
+            }*/
+
+            // Processar mensagem normal
+            if (messageText.startsWith("nome:")) {
+                await sendFormattedMessage(conn, chatId, 'template');
+            } else {
+                await handleUserMessage(conn, chatId, messageText, io);
             }
-
-            // Add new state handlers
-            if (userCurrentTopic[chatId]?.state === 'awaitingTypeSelection') {
-                const selection = parseInt(messageText, 10) - 1;
-                const types = userCurrentTopic[chatId].types;
-                const schoolsByTypeCity = userCurrentTopic[chatId].schoolsByTypeCity;
-
-                if (selection < 0 || selection >= types.length) {
-                    await sendMessage(conn, chatId, errors.invalidOption);
-                    return;
-                }
-
-                const selectedType = types[selection];
-                const citiesByType = Array.from(schoolsByTypeCity.values())
-                    .filter(entry => entry.type === selectedType);
-
-                if (citiesByType.length > 1) {
-                    let msg = greetings.chooseCity;
-                    citiesByType.forEach((entry, idx) => {
-                        msg += `${idx + 1} - ${entry.city}\n`;
-                    });
-
-                    userCurrentTopic[chatId] = {
-                        state: 'awaitingCitySelection',
-                        type: selectedType,
-                        cities: citiesByType,
-                        schoolsByTypeCity: schoolsByTypeCity,
-                        identifier: userCurrentTopic[chatId].identifier
-                    };
-
-                    await sendMessage(conn, chatId, msg.trim());
-                    return;
-                }
-
-                // Single city, check schools
-                const citySchools = Array.from(citiesByType[0].schools);
-                await handleSchoolSelection(conn, chatId, citySchools, selectedType, citiesByType[0].city, io);
-                return;
-            }
-
-            if (userCurrentTopic[chatId]?.state === 'awaitingCitySelection') {
-                const selection = parseInt(messageText, 10) - 1;
-                const cities = userCurrentTopic[chatId].cities;
-
-                if (selection < 0 || selection >= cities.length) {
-                    await sendMessage(conn, chatId, errors.invalidOption);
-                    return;
-                }
-
-                const selectedCity = cities[selection];
-                const citySchools = Array.from(selectedCity.schools);
-                await handleSchoolSelection(conn, chatId, citySchools, userCurrentTopic[chatId].type, selectedCity.city, io);
-                return;
-            }
-
-            // Modify existing school selection handler
-            if (userCurrentTopic[chatId]?.state === 'awaitingSchoolSelection') {
-                const selection = parseInt(messageText, 10) - 1;
-                const schools = userCurrentTopic[chatId].schools;
-
-                if (selection < 0 || selection >= schools.length) {
-                    await sendMessage(conn, chatId, errors.invalidOption);
-                    return;
-                }
-
-                const chosen = schools[selection];
-                await proceedWithSchoolSelection(conn, chatId, chosen, io);
-                return;
-            }
-
-            //Fluxo normal após triagem
-            await handleUserMessage(conn, chatId, messageText, io);
             
         } catch (error) {
             console.error(errors.processError.replace('%s', error.message || 'Unknown error'));
@@ -554,73 +369,17 @@ async function startListeningForMessages(conn, io) {
     });
 }
 
-// Helper function to handle school selection display
-async function handleSchoolSelection(conn, chatId, schools, type, city, io) {
-    if (schools.length > 1) {
-        let msg = greetings.chooseSchool;
-        schools.forEach((school, idx) => {
-            msg += `${idx + 1} - ${school.name}\n`;
+/*async function checkIgnoredContact(chatId) {
+    try {
+        const ignoredContact = await User.findOne({
+            where: { chatId, ignored: true }
         });
-
-        userCurrentTopic[chatId] = {
-            state: 'awaitingSchoolSelection',
-            schools: schools,
-            type: type,
-            city: city,
-            identifier: userCurrentTopic[chatId].identifier
-        };
-
-        await sendMessage(conn, chatId, msg.trim());
-    } else {
-        // Single school
-        await proceedWithSchoolSelection(conn, chatId, schools[0], io);
+        return !!ignoredContact;
+    } catch (error) {
+        console.error('Erro ao verificar contato ignorado:', error);
+        return false;
     }
-}
-
-// Helper function to proceed with the selected school
-async function proceedWithSchoolSelection(conn, chatId, school, io) {
-    userCurrentTopic[chatId] = {
-        state: 'cpfTriaged',
-        userId: school.userId,
-        userName: school.userName,
-        userType: school.userType,
-        schoolId: school.id,
-        schoolName: school.name,
-        city: school.client,
-        iescolarId: school.iescolarId
-    };
-
-    if (conn.client && conn.client.ev) {
-        conn.client.ev.emit('userTriaged', {
-            chatId,
-            userData: userCurrentTopic[chatId]
-        });
-    }
-
-    await Call.create({
-        description: 'Início de atendimento',
-        position: school.userType,
-        status: 'PENDING',
-        createDate: new Date(),
-        chatId: chatId,
-        userId: school.userId,
-        schoolId: school.id
-    });
-
-    await sendMessage(
-        conn,
-        chatId,
-        greetings.confirmSchool.replace('%s', `${school.name} - ${school.client} (${school.userType})`)
-    );
-    
-    await sendProblemOptions(conn, chatId);
-    userCurrentTopic[chatId] = 'problema';
-}
-
-async function checkIgnoredContact(chatId) {
-    const ignored = await User.findOne({ where: { id: chatId, ignored: true } });
-    return !!ignored;
-}
+}*/
 
 /**
  * Atualiza o banco de dados e notifica os clientes
@@ -629,25 +388,58 @@ async function checkIgnoredContact(chatId) {
  * @param {Object} io - Objeto Socket.IO
  * @returns {Promise<number>} ID do registro inserido/atualizado
  */
-async function updateDatabaseAndNotify(fieldsToUpdate, condition, io) {
-    await Call.update(fieldsToUpdate, { where: condition });
-    const statusData = await fetchCurrentStatus();
-    io.emit('statusUpdate', statusData);
+async function updateDatabaseAndNotify(query, params, io) {
+    try {
+        await sequelize.query(query, { replacements: params });
+        const statusData = await getStatusUpdate();
+        io.emit('statusUpdate', statusData);
+    } catch (error) {
+        console.error('Erro na atualização do banco:', error);
+    }
 }
 
 // Função auxiliar para buscar status atual
-async function fetchCurrentStatus() {
-    const [active, waiting, pending] = await Promise.all([
-        Call.findAll({ where: { status: 'ACTIVE' }, order: [['createDate', 'DESC']], limit: 3 }),
-        Call.findAll({ where: { status: 'WAITING' }, order: [['createDate', 'ASC']] }),
-        Call.findAll({ where: { status: 'PENDING' }, order: [['createDate', 'DESC']] })
-    ]);
+async function getStatusUpdate() {
+    try {
+        const [active, waiting, pending, completed] = await Promise.all([
+            Call.findAll({
+                where: { status: 'ACTIVE' },
+                order: [['createdAt', 'DESC']],
+                include: [User, School]
+            }),
+            Call.findAll({
+                where: { status: 'WAITING' },
+                order: [['createdAt', 'ASC']],
+                include: [User, School]
+            }),
+            Call.findAll({
+                where: { status: 'PENDING' },
+                order: [['createdAt', 'DESC']],
+                include: [User, School]
+            }),
+            Call.findAll({
+                where: { status: 'COMPLETED' },
+                order: [['dateTimeFinish', 'DESC']],
+                limit: 10,
+                include: [User, School]
+            })
+        ]);
 
-    return {
-        activeChats: active,
-        waitingList: waiting,
-        problems: pending
-    };
+        return {
+            activeChats: active,
+            waitingList: waiting,
+            problems: pending,
+            completedChats: completed
+        };
+    } catch (error) {
+        console.error('Error getting status update:', error);
+        return {
+            activeChats: [],
+            waitingList: [],
+            problems: [],
+            completedChats: []
+        };
+    }
 }
 
 // Processa novo usuário
@@ -656,15 +448,7 @@ async function handleNewUser(conn, chatId, userInfo, io) {
     const status = activeCount < CONFIG.MAX_ACTIVE_CHATS ? 'ACTIVE' : 'WAITING';
     
     try {
-        await Call.create({
-            chatId,
-            name: userInfo.name,
-            position: userInfo.position,
-            city: userInfo.city,
-            school: userInfo.school,
-            status,
-            createDate: new Date()
-        });
+        await saveClientInfoToDatabase(userInfo, chatId, status, io);
 
         if (status === 'ACTIVE') {
             await sendMessage(
@@ -675,12 +459,7 @@ async function handleNewUser(conn, chatId, userInfo, io) {
             await sendProblemOptions(conn, chatId);
             userCurrentTopic[chatId] = 'problema';
         } else {
-            const waitingChats = await Call.findAll({
-                where: { status: 'WAITING' },
-                order: [['createDate', 'ASC']],
-                attributes: ['chatId']
-            });
-            const position = waitingChats.findIndex(row => row.chatId === chatId) + 1;
+            const position = await getWaitingPosition(chatId);
             await sendMessage(
                 conn,
                 chatId,
@@ -693,18 +472,207 @@ async function handleNewUser(conn, chatId, userInfo, io) {
     }
 }
 
-// Função para obter contagem de chats ativos
-async function getActiveChatsCount() {
-    return await Call.count({ where: { status: 'ACTIVE' } });
+// Função para obter posição na fila
+async function getWaitingPosition(chatId) {
+    try {
+        const waitingUsers = await Call.findAll({
+            where: { status: 'WAITING' },
+            order: [['createdAt', 'ASC']]
+        });
+
+        const position = waitingUsers.findIndex(call => call.chatId === chatId) + 1;
+        return position || waitingUsers.length + 1;
+    } catch (error) {
+        console.error('Erro ao obter posição na fila:', error);
+        return null;
+    }
 }
 
-// Função para obter estado do chat
+// Substituir handleUserMessage existente por esta nova versão
+async function handleUserMessage(conn, chatId, messageText, io) {
+    try {
+        const currentTopic = userCurrentTopic[chatId];
+        
+        // Ignorar mensagens de grupos
+        if (chatId.endsWith('@g.us')) {
+            return;
+        }
+
+        // Se o chat está sendo atendido por humano, ignorar
+        if (humanAttendedChats.has(chatId)) {
+            return;
+        }
+
+        // Verificar estado do chat
+        const chatState = await Call.findOne({
+            where: { chatId },
+            order: [['createdAt', 'DESC']]
+        });
+
+        // Se não há tópico atual, iniciar triagem
+        if (!currentTopic) {
+            await screening.startScreening(conn, chatId);
+            return;
+        }
+
+        // Processar conforme o estado da triagem
+        const screeningTopic = screening.getUserTopic(chatId);
+        if (screeningTopic) {
+            switch (screeningTopic.state) {
+                case 'awaitingCpf':
+                    await screening.handleCpfInput(conn, chatId, messageText, io);
+                    return;
+                case 'awaitingTypeSelection':
+                    const typeIndex = parseInt(messageText) - 1;
+                    if (isNaN(typeIndex) || typeIndex < 0 || typeIndex >= screeningTopic.types.length) {
+                        await sendMessage(conn, chatId, errors.invalidOption);
+                        return;
+                    }
+                    await screening.handleTypeSelection(conn, chatId, typeIndex, screeningTopic.types, screeningTopic.schoolsByTypeCity);
+                    return;
+                case 'awaitingCitySelection':
+                    const cityIndex = parseInt(messageText) - 1;
+                    if (isNaN(cityIndex) || cityIndex < 0 || cityIndex >= screeningTopic.cities.length) {
+                        await sendMessage(conn, chatId, errors.invalidOption);
+                        return;
+                    }
+                    await screening.handleCitySelection(conn, chatId, cityIndex, screeningTopic.cities, screeningTopic.type);
+                    return;
+                case 'awaitingSchoolSelection':
+                    const schoolIndex = parseInt(messageText) - 1;
+                    if (isNaN(schoolIndex) || schoolIndex < 0 || schoolIndex >= screeningTopic.schools.length) {
+                        await sendMessage(conn, chatId, errors.invalidOption);
+                        return;
+                    }
+                    await screening.proceedWithSchoolSelection(conn, chatId, screeningTopic.schools[schoolIndex]);
+                    return;
+                case 'cpfTriaged':
+                    // Continuar com o fluxo normal após triagem
+                    userCurrentTopic[chatId] = 'problema';
+                    await sendProblemOptions(conn, chatId);
+                    return;
+            }
+        }
+
+        // Continuar com o resto do fluxo existente para outras mensagens
+        if (currentTopic === 'problema') {
+            await handleProblemSelection(conn, chatId, messageText, io);
+        } else if (currentTopic.stage === 'subproblema') {
+            await handleSubProblemSelection(conn, chatId, messageText, io);
+        }
+    } catch (error) {
+        console.error(errors.processError.replace('%s', error));
+    }
+}
+
+// Processa mensagem do usuário
+async function handleUserMessage(conn, chatId, messageText, io) {
+    try {
+        const currentTopic = userCurrentTopic[chatId];
+        
+        // Lista de comandos que devem ignorar verificação de duplicidade
+        const allowedDuplicates = [
+            '1', '2', '3', '4', '5', '6',
+            'voltar',
+            'sim', 'não',
+            'menu'
+        ];
+        
+        // Verificar duplicação apenas se não for um comando permitido
+        if (!allowedDuplicates.includes(messageText.toLowerCase())) {
+            const chatHistory = messageHistory.get(chatId) || [];
+            const now = Date.now();
+            
+            // Limpar mensagens antigas do histórico
+            while (chatHistory.length > 0 && now - chatHistory[0].timestamp > CONFIG.DUPLICATE_MESSAGE_WINDOW) {
+                chatHistory.shift();
+            }
+            
+            // Verificar se é uma mensagem duplicada
+            const isDuplicate = chatHistory.some(msg => 
+                msg.text === messageText && 
+                (now - msg.timestamp) < CONFIG.DUPLICATE_MESSAGE_WINDOW
+            );
+            
+            if (isDuplicate) {
+                console.log(`Mensagem duplicada ignorada para ${chatId}: ${messageText}`);
+                return;
+            }
+            
+            // Adicionar mensagem ao histórico
+            chatHistory.push({ text: messageText, timestamp: now });
+            if (chatHistory.length > CONFIG.MESSAGE_HISTORY_LIMIT) {
+                chatHistory.shift();
+            }
+            messageHistory.set(chatId, chatHistory);
+        }
+
+        // Se o chat está sendo atendido por humano, ignorar
+        if (humanAttendedChats.has(chatId)) {
+            return;
+        }
+        
+        // Verificar estado do chat no banco de dados
+        const chatState = await Call.findOne({
+            where: { chatId },
+            order: [['createdAt', 'DESC']]
+        });
+
+        if (chatState && chatState.status === 'ACTIVE') {
+            // Se já existe um atendimento ativo, não iniciar novo
+            if (!currentTopic && !messageText.toLowerCase().startsWith('nome:')) {
+                console.log(`Chat ${chatId} já possui atendimento ativo`);
+                return;
+            }
+        }
+        
+        // Resto do processamento de mensagem
+        if (!currentTopic || messageText.toLowerCase().startsWith('nome:')) {
+            if (messageText.toLowerCase().startsWith('nome:')) {
+                await sendFormattedMessage(conn, chatId, 'template');
+            } else {
+                await sendFormattedMessage(conn, chatId, 'template');
+            }
+            return;
+        }
+
+        if (currentTopic.state === 'descricaoProblema') {
+            await handleProblemDescription(conn, chatId, messageText, io);
+            // Após descrever o problema, limpar o tópico para evitar respostas automáticas
+            delete userCurrentTopic[chatId];
+        } else if (currentTopic === 'problema') {
+            await handleProblemSelection(conn, chatId, messageText, io);
+        } else if (currentTopic.stage === 'subproblema') {
+            await handleSubProblemSelection(conn, chatId, messageText, io);
+        } else if (currentTopic === 'videoFeedback') {
+            await handleVideoFeedback(conn, chatId, messageText, io);
+        } else if (currentTopic === 'serviceFeedback') {
+            const feedbackSuccess = await ServiceFeedback.handleFeedback(conn, chatId, messageText, io);
+            if (feedbackSuccess) {
+                delete userCurrentTopic[chatId];
+                await sendMessage(conn, chatId, greetings.template);
+            }
+            return;
+        } else {
+            await sendMessage(conn, chatId, defaultMessage);
+        }
+    } catch (error) {
+        console.error(errors.processError.replace('%s', error));
+    }
+}
+
+//Função para obter estado do chat
 async function getChatState(chatId) {
-    return await Call.findOne({
-        where: { chatId },
-        order: [['createDate', 'DESC']],
-        attributes: ['status']
-    });
+    try {
+        const chatState = await Call.findOne({
+            where: { chatId },
+            order: [['createdAt', 'DESC']]
+        });
+        return chatState;
+    } catch (error) {
+        console.error('Erro ao obter estado do chat:', error);
+        return null;
+    }
 }
 
 function getRandomDelay() {
@@ -721,8 +689,18 @@ function getRandomWelcomeMessage() {
 }
 
 async function sendFormattedMessage(conn, chatId, type) {
-    // Apenas envia mensagem de boas-vindas aleatória, pois não há mais fluxo de template
-    await sendMessage(conn, chatId, getRandomWelcomeMessage());
+    switch (type) {
+        case 'template':
+            // Mantém delay inicial longo
+            await new Promise(resolve => setTimeout(resolve, getRandomDelay()));
+            await sendMessage(conn, chatId, getRandomWelcomeMessage());
+            // Reduz delay do template
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            await sendMessage(conn, chatId, greetings.template);
+            break;
+        default:
+            await sendMessage(conn, chatId, getRandomWelcomeMessage());
+    }
 }
 
 // Processa fechamento do chat
@@ -735,10 +713,7 @@ async function handleChatClosed(chatId, io) {
         );
 
         // Obter próximo usuário na lista de espera
-        const nextUser = await Call.findOne({
-            where: { status: 'WAITING' },
-            order: [['createDate', 'ASC']]
-        });
+        const nextUser = await getNextInWaitingList();
         
         // Verificar se existe próximo usuário
         if (nextUser) {
@@ -766,6 +741,61 @@ async function handleChatClosed(chatId, io) {
     } catch (error) {
         console.error(errors.processError.replace('%s', error));
     }
+}
+
+/**
+ * Envia uma mensagem para o usuário através do WhatsApp
+ * @param {Object} conn - Conexão com o WhatsApp
+ * @param {string} chatId - ID do chat
+ * @param {string} message - Mensagem a ser enviada
+ * @returns {Promise<void>}
+ */
+// Controle de mensagens recentes
+const recentMessages = new Map();
+const MESSAGE_TIMEOUT = 2000; 
+
+const sentMessages = new Map();
+const DEBOUNCE_TIME = 2000; 
+
+
+async function sendMessage(conn, chatId, message) {
+    if (!messageQueue.has(chatId)) {
+        messageQueue.set(chatId, Promise.resolve());
+    }
+
+    return messageQueue.get(chatId).then(async () => {
+        const now = Date.now();
+        const lastMessage = sentMessages.get(chatId);
+
+        if (lastMessage && 
+            lastMessage.text === message && 
+            (now - lastMessage.timestamp) < DEBOUNCE_TIME) {
+            console.log(logs.similarMessage.replace('%s', message));
+            return;
+        }
+
+        try {
+            if (!conn || !conn.client || !message) {
+                throw new Error('Invalid connection or message');
+            }
+
+            await conn.client.sendMessage({
+                to: chatId,
+                body: message,
+                options: { type: 'sendText' }
+            });
+
+            sentMessages.set(chatId, {
+                text: message,
+                timestamp: now
+            });
+
+            await new Promise(resolve => setTimeout(resolve, CONFIG.MESSAGE_DELAY));
+        } catch (error) {
+            console.error(errors.sendError.replace('%s', error.message || 'Unknown error'));
+            throw error;
+        }
+    });
 }
 
 // Envia opções de problema para o usuário
@@ -874,9 +904,9 @@ async function handleSubProblemSelection(conn, chatId, messageText, io) {
         const videoUrl = dialogs.subProblems[problemKey].videos[messageText];
 
         // Buscar informações do usuário
-        const userInfo = await Call.findOne({
+        const userInfo = await User.findOne({
             where: { chatId },
-            attributes: ['name', 'city', 'position', 'school']
+            include: [School]
         });
 
         if (!userInfo) {
@@ -889,13 +919,9 @@ async function handleSubProblemSelection(conn, chatId, messageText, io) {
 
         await Call.create({
             chatId,
-            name: userInfo.name,
-            city: userInfo.city,
-            position: userInfo.position,
-            school: userInfo.school,
             description: problemDescription,
             status: 'PENDING',
-            createDate: date
+            date
         });
 
         await sendMessage(conn, chatId, dialogs.watchVideo.replace('%s', videoUrl));
@@ -938,10 +964,9 @@ async function handleVideoFeedback(conn, chatId, messageText, io) {
 async function handleProblemDescription(conn, chatId, messageText, io) {
     try {
         // Get user info for possible new problem creation
-        const userInfo = await Call.findOne({
+        const userInfo = await User.findOne({
             where: { chatId },
-            order: [['createDate', 'DESC']],
-            attributes: ['name', 'city', 'position', 'school']
+            include: [School]
         });
 
         if (!userInfo) {
@@ -958,35 +983,31 @@ async function handleProblemDescription(conn, chatId, messageText, io) {
             // Update the most recent problem for video feedback case
             const existingProblem = await Call.findOne({
                 where: { chatId },
-                order: [['createDate', 'DESC']]
+                order: [['createdAt', 'DESC']]
             });
 
             if (existingProblem) {
                 await Call.update(
-                    { description, createDate: date },
+                    { description, date },
                     { where: { id: existingProblem.id } }
                 );
 
                 io.emit('userProblem', {
                     description,
                     chatId,
-                    name: existingProblem.name,
-                    city: existingProblem.city,
-                    position: existingProblem.position,
-                    school: existingProblem.school
+                    name: userInfo.name,
+                    city: userInfo.city,
+                    position: userInfo.type,
+                    school: userInfo.school.name
                 });
             }
         } else {
             // Create new problem record for option 6
             await Call.create({
                 chatId,
-                name: userInfo.name,
-                city: userInfo.city,
-                position: userInfo.position,
-                school: userInfo.school,
                 description,
                 status: 'PENDING',
-                createDate: date
+                date
             });
 
             // Emit new problem event
@@ -995,8 +1016,8 @@ async function handleProblemDescription(conn, chatId, messageText, io) {
                 chatId,
                 name: userInfo.name,
                 city: userInfo.city,
-                position: userInfo.position,
-                school: userInfo.school
+                position: userInfo.type,
+                school: userInfo.school.name
             });
         }
 
@@ -1025,62 +1046,87 @@ async function handleProblemDescription(conn, chatId, messageText, io) {
 
 // Salvar informações do cliente no banco de dados
 async function saveClientInfoToDatabase(userInfo, chatId, status, io) {
-    await Call.create({
-        chatId,
-        name: userInfo.name,
-        position: userInfo.position,
-        city: userInfo.city,
-        school: userInfo.school,
-        status,
-        createDate: new Date()
-    });
-    io.emit('statusUpdate');
+    try {
+        const [school] = await School.findOrCreate({
+            where: { name: userInfo.school },
+            defaults: {
+                name: userInfo.school,
+                // Add other required school fields with default values
+                inep: '',
+                client: '',
+                neighborhood: '',
+                street: '',
+                number: ''
+            }
+        });
+
+        const [user] = await User.findOrCreate({
+            where: { chatId: chatId },
+            defaults: {
+                name: userInfo.name,
+                type: userInfo.position,
+                identifier: ''
+            }
+        });
+
+        await CreateCall.create({
+            idUser: user.id,
+            idSchool: school.id,
+            chatId: chatId,
+            date: new Date()
+        });
+
+        io.emit('statusUpdate');
+    } catch (error) {
+        console.error('Error saving client info:', error);
+    }
 }
 
 // Salvar problema no banco de dados
 async function saveProblemToDatabase(problemData, io) {
-    await Call.update(
-        { description: problemData.description, createDate: problemData.date },
-        { where: { id: problemData.problemId } }
-    );
-    io.emit('statusUpdate');
+    try {
+        await Call.update({
+            description: problemData.description
+        }, {
+            where: { id: problemData.problemId }
+        });
+
+        await sendStatusUpdateToMainProcess(io);
+    } catch (error) {
+        console.error('Error saving problem:', error);
+    }
 }
 
 // Marcar problema como concluído no banco de dados
 async function markProblemAsCompleted(problemId, io) {
-    await Call.update(
-        { status: 'COMPLETED' },
-        { where: { id: problemId } }
-    );
-    io.emit('statusUpdate');
+    try {
+        await Call.update({
+            status: 'COMPLETED',
+            dateTimeFinish: new Date()
+        }, {
+            where: { id: problemId }
+        });
+
+        await sendStatusUpdateToMainProcess(io);
+    } catch (error) {
+        console.error('Error marking problem as completed:', error);
+    }
 }
 
 // Enviar atualização de status para o processo principal
 async function sendStatusUpdateToMainProcess(io) {
     try {
-        const [active, waiting, pending, completed] = await Promise.all([
-            Call.findAll({ where: { status: 'ACTIVE' }, order: [['createDate', 'DESC']] }),
-            Call.findAll({ where: { status: 'WAITING' }, order: [['createDate', 'ASC']] }),
-            Call.findAll({ where: { status: 'PENDING' }, order: [['createDate', 'DESC']] }),
-            Call.findAll({ where: { status: 'COMPLETED' }, order: [['dateTimeFinish', 'DESC']], limit: 10 })
-        ]);
-
-        const statusData = {
-            activeChats: active,
-            waitingList: waiting,
-            problems: pending,
-            completedChats: completed
-        };
+        const statusData = await getStatusUpdate();
 
         // Emitir atualização para todos os clientes
         io.emit('statusUpdate', statusData);
         
         // Log de depuração
         console.log('Status atualizado:', {
-            activeCount: active.length,
-            waitingCount: waiting.length,
-            pendingCount: pending.length,
-            completedCount: completed.length
+            activeCount: statusData.activeChats.length,
+            waitingCount: statusData.waitingList.length,
+            pendingCount: statusData.problems.length,
+            completedCount: statusData.completedChats.length
         });
 
     } catch (error) {
@@ -1106,15 +1152,11 @@ async function closeChat(chatId, io) {
         );
 
         // 2. Emitir atualização imediata da UI
-        const statusData = await ServiceFeedback.getStatusUpdate();
+        const statusData = await getStatusUpdate();
         io.emit('statusUpdate', statusData);
 
         // 4. Processa próximo usuário na fila
-        const nextUser = await Call.findOne({
-            where: { status: 'WAITING' },
-            order: [['createDate', 'ASC']]
-        });
-
+        const nextUser = await getNextInWaitingList();
         if (nextUser) {
             await Call.update(
                 { status: 'ACTIVE' },
@@ -1139,10 +1181,17 @@ async function closeChat(chatId, io) {
 
 // Função para obter próximo da fila
 async function getNextInWaitingList() {
-    return await Call.findOne({
-        where: { status: 'WAITING' },
-        order: [['createDate', 'ASC']]
-    });
+    try {
+        const nextCall = await Call.findOne({
+            where: { status: 'WAITING' },
+            order: [['createdAt', 'ASC']],
+            include: [User, School]
+        });
+        return nextCall;
+    } catch (error) {
+        console.error('Error getting next in waiting list:', error);
+        return null;
+    }
 }
 
 
@@ -1201,8 +1250,7 @@ async function updateWaitingUsers(io) {
     try {
         const waitingUsers = await Call.findAll({
             where: { status: 'WAITING' },
-            order: [['createDate', 'ASC']],
-            attributes: ['chatId', 'name', 'date']
+            order: [['createdAt', 'ASC']]
         });
 
         // Para cada usuário em espera, calcular e enviar sua posição atual

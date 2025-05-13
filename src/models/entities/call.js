@@ -21,9 +21,7 @@ const Call = sequelize.define(
             type: DataTypes.ENUM('PENDING', 'ACTIVE', 'WAITING', 'COMPLETED'),
             allowNull: false,
         },
-        createDate: {
-            type: DataTypes.DATE,
-        },
+
         dateTimeFinish: {
             type: DataTypes.DATE,
         },

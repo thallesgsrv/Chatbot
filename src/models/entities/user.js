@@ -1,5 +1,4 @@
 const School = require('./school.js')
-const Call = require('./call.js')
 const UserTelephone = require('./usertelephone.js')
 const sequelize = require('../connections/connection.js')
 const {DataTypes} = require('sequelize');

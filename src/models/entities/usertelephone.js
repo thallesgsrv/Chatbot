@@ -7,7 +7,7 @@ const UserTelephone = sequelize.define(
         idUser: {
             type: DataTypes.BIGINT,
             references: {
-                model: 'user',  // Reference the table name instead of the model
+                model: 'user',
                 key: 'id',
             },
             primaryKey: true,

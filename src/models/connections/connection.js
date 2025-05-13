@@ -12,7 +12,7 @@ const sequelize = new Sequelize({
     database: 'chatbot'
 });
 
-async function importCsvData() {
+/*async function importCsvData() {
     const User = require('../entities/user');
     const School = require('../entities/school');
     const UserTelephone = require('../entities/usertelephone');
@@ -82,7 +82,7 @@ async function importCsvData() {
             }
         });
     });
-}
+}*/
 
 module.exports = sequelize;
-module.exports.importCsvData = importCsvData;
+//module.exports.importCsvData = importCsvData;

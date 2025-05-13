@@ -22,7 +22,7 @@ const Card = sequelize.define(
     },
     {
         freezeTableName: true,
-        timestamps: false,
+        timestamps: true,
     },
 );
 

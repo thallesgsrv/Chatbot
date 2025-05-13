@@ -17,6 +17,7 @@ const School = require('../models/entities/school.js');
 const Call = require('../models/entities/call.js');
 const Attendant = require('../models/entities/attendant.js');
 const UserTelephone = require('../models/entities/usertelephone.js');
+const CreateCall = require('../models/entities/createcall.js');
 
 // Configuração do servidor HTTP e Socket.IO
 const httpServer = http.createServer(server);
@@ -31,38 +32,13 @@ async function fetchSystemData() {
     try {
         const [active, waiting, pending] = await Promise.all([
             Call.findAll({
-                where: { status: 'ACTIVE' },
-                order: [['createDate', 'DESC']],
-                limit: 3,
-                include: [
-                    { 
-                        model: User,
-                        as: 'user'
-                    },
-                    { model: Attendant }
-                ]
+                where: { status: 'ACTIVE' }
             }),
             Call.findAll({
-                where: { status: 'WAITING' },
-                order: [['createDate', 'ASC']],
-                include: [
-                    { 
-                        model: User,
-                        as: 'user'
-                    },
-                    { model: Attendant }
-                ]
+                where: { status: 'WAITING' }
             }),
             Call.findAll({
-                where: { status: 'PENDING' },
-                order: [['createDate', 'DESC']],
-                include: [
-                    { 
-                        model: User,
-                        as: 'user'
-                    },
-                    { model: Attendant }
-                ]
+                where: { status: 'PENDING' }
             })
         ]);
 
@@ -192,7 +168,7 @@ app.whenReady().then(async () => {
     try {
         await sequelize.authenticate();
         await sequelize.sync();
-        await sequelize.importCsvData();
+        //await sequelize.importCsvData();
         createWindow();
         setupIpcHandlers();
         startHydraBot(io);
