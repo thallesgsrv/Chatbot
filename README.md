@@ -71,7 +71,7 @@ DB_PORT=5432
 DB_NAME=chatbot
 DB_USER=your_user
 DB_PASS=your_password
-
+```
 
 ## 👩‍💻 Development
 
