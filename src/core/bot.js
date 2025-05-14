@@ -73,7 +73,7 @@ const messageHistory = new Map();
 const processedEvents = new Set();
 const EVENT_TIMEOUT = 2000; 
 
-// Adicionar instância do Screening
+// Initialize Screening instance
 const screening = new Screening();
 
 /**
@@ -310,12 +310,7 @@ async function startListeningForMessages(conn, io) {
 
         try {
             // Ignorar mensagens enviadas pelo bot
-            if (newMsg.result.fromMe) {
-                return;
-            }
-
-            // Ignorar mensagens de grupos
-            if (chatId.endsWith('@g.us')) {
+            if (newMsg.result.fromMe || chatId.endsWith('@g.us')) {
                 return;
             }
 
@@ -328,18 +323,55 @@ async function startListeningForMessages(conn, io) {
                 return;
             }
 
-            // Continuar com o fluxo normal para outras mensagens
-            /*const isIgnored = await checkIgnoredContact(chatId);
-            if (isIgnored) {
+            // Verificar se já está em processo de triagem
+            const screeningTopic = screening.getUserTopic(chatId);
+            
+            // Se não está em triagem e não tem tópico atual, iniciar triagem
+            if (!screeningTopic && !userCurrentTopic[chatId]) {
+                await screening.startScreening(conn, chatId);
                 return;
-            }*/
-
-            // Processar mensagem normal
-            if (messageText.startsWith("nome:")) {
-                await sendFormattedMessage(conn, chatId, 'template');
-            } else {
-                await handleUserMessage(conn, chatId, messageText, io);
             }
+
+            // Se está em triagem, processar conforme o estado
+            if (screeningTopic) {
+                switch (screeningTopic.state) {
+                    case 'awaitingCpf':
+                        await screening.handleCpfInput(conn, chatId, messageText, io);
+                        return;
+                    case 'awaitingTypeSelection':
+                        const typeIndex = parseInt(messageText) - 1;
+                        if (isNaN(typeIndex) || typeIndex < 0 || typeIndex >= screeningTopic.types.length) {
+                            await sendMessage(conn, chatId, errors.invalidOption);
+                            return;
+                        }
+                        await screening.handleTypeSelection(conn, chatId, typeIndex, screeningTopic.types, screeningTopic.schoolsByTypeCity);
+                        return;
+                    case 'awaitingCitySelection':
+                        const cityIndex = parseInt(messageText) - 1;
+                        if (isNaN(cityIndex) || cityIndex < 0 || cityIndex >= screeningTopic.cities.length) {
+                            await sendMessage(conn, chatId, errors.invalidOption);
+                            return;
+                        }
+                        await screening.handleCitySelection(conn, chatId, cityIndex, screeningTopic.cities, screeningTopic.type);
+                        return;
+                    case 'awaitingSchoolSelection':
+                        const schoolIndex = parseInt(messageText) - 1;
+                        if (isNaN(schoolIndex) || schoolIndex < 0 || schoolIndex >= screeningTopic.schools.length) {
+                            await sendMessage(conn, chatId, errors.invalidOption);
+                            return;
+                        }
+                        await screening.proceedWithSchoolSelection(conn, chatId, screeningTopic.schools[schoolIndex]);
+                        return;
+                    case 'cpfTriaged':
+                        // Após triagem completa, continuar com fluxo normal
+                        userCurrentTopic[chatId] = 'problema';
+                        await sendProblemOptions(conn, chatId);
+                        return;
+                }
+            }
+
+            // Continuar com o fluxo normal para outras mensagens
+            await handleUserMessage(conn, chatId, messageText, io);
             
         } catch (error) {
             console.error(errors.processError.replace('%s', error.message || 'Unknown error'));
@@ -488,11 +520,9 @@ async function getWaitingPosition(chatId) {
     }
 }
 
-// Substituir handleUserMessage existente por esta nova versão
+
 async function handleUserMessage(conn, chatId, messageText, io) {
     try {
-        const currentTopic = userCurrentTopic[chatId];
-        
         // Ignorar mensagens de grupos
         if (chatId.endsWith('@g.us')) {
             return;
@@ -509,153 +539,61 @@ async function handleUserMessage(conn, chatId, messageText, io) {
             order: [['createdAt', 'DESC']]
         });
 
-        // Se não há tópico atual, iniciar triagem
-        if (!currentTopic) {
+        // Verificar se já está em processo de triagem
+        const screeningTopic = screening.getUserTopic(chatId);
+        
+        // Se não está em triagem, iniciar triagem
+        if (!screeningTopic) {
             await screening.startScreening(conn, chatId);
+            // Sincronizar o estado global com o estado do screening
+            userCurrentTopic[chatId] = { state: 'awaitingCpf' };
             return;
         }
 
         // Processar conforme o estado da triagem
-        const screeningTopic = screening.getUserTopic(chatId);
-        if (screeningTopic) {
-            switch (screeningTopic.state) {
-                case 'awaitingCpf':
-                    await screening.handleCpfInput(conn, chatId, messageText, io);
+        switch (screeningTopic.state) {
+            case 'awaitingCpf':
+                await screening.handleCpfInput(conn, chatId, messageText, io);
+                return;
+            case 'awaitingTypeSelection':
+                const typeIndex = parseInt(messageText) - 1;
+                if (isNaN(typeIndex) || typeIndex < 0 || typeIndex >= screeningTopic.types.length) {
+                    await sendMessage(conn, chatId, errors.invalidOption);
                     return;
-                case 'awaitingTypeSelection':
-                    const typeIndex = parseInt(messageText) - 1;
-                    if (isNaN(typeIndex) || typeIndex < 0 || typeIndex >= screeningTopic.types.length) {
-                        await sendMessage(conn, chatId, errors.invalidOption);
-                        return;
-                    }
-                    await screening.handleTypeSelection(conn, chatId, typeIndex, screeningTopic.types, screeningTopic.schoolsByTypeCity);
+                }
+                await screening.handleTypeSelection(conn, chatId, typeIndex, screeningTopic.types, screeningTopic.schoolsByTypeCity);
+                return;
+            case 'awaitingCitySelection':
+                const cityIndex = parseInt(messageText) - 1;
+                if (isNaN(cityIndex) || cityIndex < 0 || cityIndex >= screeningTopic.cities.length) {
+                    await sendMessage(conn, chatId, errors.invalidOption);
                     return;
-                case 'awaitingCitySelection':
-                    const cityIndex = parseInt(messageText) - 1;
-                    if (isNaN(cityIndex) || cityIndex < 0 || cityIndex >= screeningTopic.cities.length) {
-                        await sendMessage(conn, chatId, errors.invalidOption);
-                        return;
-                    }
-                    await screening.handleCitySelection(conn, chatId, cityIndex, screeningTopic.cities, screeningTopic.type);
+                }
+                await screening.handleCitySelection(conn, chatId, cityIndex, screeningTopic.cities, screeningTopic.type);
+                return;
+            case 'awaitingSchoolSelection':
+                const schoolIndex = parseInt(messageText) - 1;
+                if (isNaN(schoolIndex) || schoolIndex < 0 || schoolIndex >= screeningTopic.schools.length) {
+                    await sendMessage(conn, chatId, errors.invalidOption);
                     return;
-                case 'awaitingSchoolSelection':
-                    const schoolIndex = parseInt(messageText) - 1;
-                    if (isNaN(schoolIndex) || schoolIndex < 0 || schoolIndex >= screeningTopic.schools.length) {
-                        await sendMessage(conn, chatId, errors.invalidOption);
-                        return;
-                    }
-                    await screening.proceedWithSchoolSelection(conn, chatId, screeningTopic.schools[schoolIndex]);
-                    return;
-                case 'cpfTriaged':
-                    // Continuar com o fluxo normal após triagem
-                    userCurrentTopic[chatId] = 'problema';
-                    await sendProblemOptions(conn, chatId);
-                    return;
-            }
+                }
+                await screening.proceedWithSchoolSelection(conn, chatId, screeningTopic.schools[schoolIndex]);
+                return;
+            case 'cpfTriaged':
+                // Após triagem completa, continuar com fluxo normal
+                userCurrentTopic[chatId] = 'problema';
+                await sendProblemOptions(conn, chatId);
+                screening.clearUserTopic(chatId); // Limpar estado da triagem
+                return;
         }
 
         // Continuar com o resto do fluxo existente para outras mensagens
-        if (currentTopic === 'problema') {
+        if (userCurrentTopic[chatId] === 'problema') {
             await handleProblemSelection(conn, chatId, messageText, io);
-        } else if (currentTopic.stage === 'subproblema') {
+        } else if (userCurrentTopic[chatId]?.stage === 'subproblema') {
             await handleSubProblemSelection(conn, chatId, messageText, io);
         }
-    } catch (error) {
-        console.error(errors.processError.replace('%s', error));
-    }
-}
-
-// Processa mensagem do usuário
-async function handleUserMessage(conn, chatId, messageText, io) {
-    try {
-        const currentTopic = userCurrentTopic[chatId];
         
-        // Lista de comandos que devem ignorar verificação de duplicidade
-        const allowedDuplicates = [
-            '1', '2', '3', '4', '5', '6',
-            'voltar',
-            'sim', 'não',
-            'menu'
-        ];
-        
-        // Verificar duplicação apenas se não for um comando permitido
-        if (!allowedDuplicates.includes(messageText.toLowerCase())) {
-            const chatHistory = messageHistory.get(chatId) || [];
-            const now = Date.now();
-            
-            // Limpar mensagens antigas do histórico
-            while (chatHistory.length > 0 && now - chatHistory[0].timestamp > CONFIG.DUPLICATE_MESSAGE_WINDOW) {
-                chatHistory.shift();
-            }
-            
-            // Verificar se é uma mensagem duplicada
-            const isDuplicate = chatHistory.some(msg => 
-                msg.text === messageText && 
-                (now - msg.timestamp) < CONFIG.DUPLICATE_MESSAGE_WINDOW
-            );
-            
-            if (isDuplicate) {
-                console.log(`Mensagem duplicada ignorada para ${chatId}: ${messageText}`);
-                return;
-            }
-            
-            // Adicionar mensagem ao histórico
-            chatHistory.push({ text: messageText, timestamp: now });
-            if (chatHistory.length > CONFIG.MESSAGE_HISTORY_LIMIT) {
-                chatHistory.shift();
-            }
-            messageHistory.set(chatId, chatHistory);
-        }
-
-        // Se o chat está sendo atendido por humano, ignorar
-        if (humanAttendedChats.has(chatId)) {
-            return;
-        }
-        
-        // Verificar estado do chat no banco de dados
-        const chatState = await Call.findOne({
-            where: { chatId },
-            order: [['createdAt', 'DESC']]
-        });
-
-        if (chatState && chatState.status === 'ACTIVE') {
-            // Se já existe um atendimento ativo, não iniciar novo
-            if (!currentTopic && !messageText.toLowerCase().startsWith('nome:')) {
-                console.log(`Chat ${chatId} já possui atendimento ativo`);
-                return;
-            }
-        }
-        
-        // Resto do processamento de mensagem
-        if (!currentTopic || messageText.toLowerCase().startsWith('nome:')) {
-            if (messageText.toLowerCase().startsWith('nome:')) {
-                await sendFormattedMessage(conn, chatId, 'template');
-            } else {
-                await sendFormattedMessage(conn, chatId, 'template');
-            }
-            return;
-        }
-
-        if (currentTopic.state === 'descricaoProblema') {
-            await handleProblemDescription(conn, chatId, messageText, io);
-            // Após descrever o problema, limpar o tópico para evitar respostas automáticas
-            delete userCurrentTopic[chatId];
-        } else if (currentTopic === 'problema') {
-            await handleProblemSelection(conn, chatId, messageText, io);
-        } else if (currentTopic.stage === 'subproblema') {
-            await handleSubProblemSelection(conn, chatId, messageText, io);
-        } else if (currentTopic === 'videoFeedback') {
-            await handleVideoFeedback(conn, chatId, messageText, io);
-        } else if (currentTopic === 'serviceFeedback') {
-            const feedbackSuccess = await ServiceFeedback.handleFeedback(conn, chatId, messageText, io);
-            if (feedbackSuccess) {
-                delete userCurrentTopic[chatId];
-                await sendMessage(conn, chatId, greetings.template);
-            }
-            return;
-        } else {
-            await sendMessage(conn, chatId, defaultMessage);
-        }
     } catch (error) {
         console.error(errors.processError.replace('%s', error));
     }
