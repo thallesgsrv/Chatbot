@@ -408,9 +408,8 @@ class Screening {
 
         await Call.create({
             createCallId: createCall.id,
-            description: 'Início de atendimento',
             position: school.userType,
-            status: 'PENDING',
+            status: 'ACTIVE',
         });
 
         await conn.client.sendMessage({

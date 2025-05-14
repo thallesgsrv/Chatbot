@@ -1,5 +1,6 @@
 const sequelize = require('../connections/connection.js')
 const {DataTypes} = require('sequelize');
+const CreateCall = require('./createcall.js');
 
 const Call = sequelize.define(
     'call',
@@ -39,5 +40,6 @@ const Call = sequelize.define(
     },
 
 );
+Call.belongsTo(CreateCall, { foreignKey: 'createCallId' });
 
 module.exports = Call;
