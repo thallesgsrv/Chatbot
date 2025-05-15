@@ -396,7 +396,6 @@ class Screening {
             });
         }
 
-        // Use the appropriate user ID for the selected school
         const userId = Array.isArray(school.userId) ? school.userId[0] : school.userId;
         
         const createCall = await CreateCall.create({
@@ -409,7 +408,7 @@ class Screening {
         await Call.create({
             createCallId: createCall.id,
             position: school.userType,
-            status: 'ACTIVE',
+            status: 'ACTIVE'
         });
 
         await conn.client.sendMessage({

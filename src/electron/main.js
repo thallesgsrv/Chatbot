@@ -18,6 +18,7 @@ const Call = require('../models/entities/call.js');
 const Attendant = require('../models/entities/attendant.js');
 const UserTelephone = require('../models/entities/usertelephone.js');
 const CreateCall = require('../models/entities/createcall.js');
+const DisableContact = require('../models/entities/disablecontact.js');
 
 // Configuração do servidor HTTP e Socket.IO
 const httpServer = http.createServer(server);

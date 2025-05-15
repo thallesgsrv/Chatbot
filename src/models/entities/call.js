@@ -12,7 +12,7 @@ const Call = sequelize.define(
         },
         description: {
             type: DataTypes.TEXT,
-            allowNull: false,
+            allowNull: true,
         },
         position: {
             type: DataTypes.STRING,
