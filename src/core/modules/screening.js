@@ -8,8 +8,10 @@ const sequelize = require('../../models/connections/connection');
 const { Op } = require('sequelize');
 
 class Screening {
-    constructor() {
+    constructor(io, getStatusUpdate) {
         this.userCurrentTopic = {};
+        this.io = io; // Salva a instância do socket.io
+        this.getStatusUpdate = getStatusUpdate; // Injected function
     }
 
     async startScreening(conn, chatId) {
@@ -411,11 +413,22 @@ class Screening {
             status: 'ACTIVE'
         });
 
+        // Envie a mensagem de confirmação primeiro
         await conn.client.sendMessage({
             to: chatId,
             body: greetings.confirmSchool.replace('%s', `${school.name} - ${school.client} (${school.userType})`),
             options: { type: 'sendText' }
         });
+
+        // Só depois atualize o front-end
+        if (this.io) {
+            if (this.getStatusUpdate) {
+                const statusData = await this.getStatusUpdate();
+                this.io.emit('statusUpdate', statusData);
+            } else {
+                this.io.emit('forceUpdate');
+            }
+        }
     }
 
     getRandomWelcomeMessage() {

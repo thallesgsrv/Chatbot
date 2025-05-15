@@ -15,12 +15,12 @@ const ServiceFeedback = require('./modules/serviceFeedback');
 const Screening = require('./modules/screening');
 
 // Import Sequelize models
-const { Call } = require('../models/entities/call');
-const { User } = require('../models/entities/user');
-const { School } = require('../models/entities/school');
-const { CreateCall } = require('../models/entities/createcall');
-const { Card } = require('../models/entities/card');
-const { Attendant } = require('../models/entities/attendant');
+const Call = require('../models/entities/call');
+const User = require('../models/entities/user');
+const School = require('../models/entities/school');
+const CreateCall = require('../models/entities/createcall');
+const Card = require('../models/entities/card');
+const Attendant = require('../models/entities/attendant');
 const sequelize = require('../models/connections/connection');
 
 //Importar mensagens e diálogos                                            
@@ -74,7 +74,7 @@ const processedEvents = new Set();
 const EVENT_TIMEOUT = 2000; 
 
 // Initialize Screening instance
-const screening = new Screening();
+let screening;
 
 /**
  * Template de boas-vindas e coleta de informações
@@ -93,92 +93,36 @@ server.use(express.json());
  * @param {Object} io - Instância do Socket.IO para comunicação em tempo real
  */
 async function startHydraBot(io) {
-  try {
-    bot = await hydraBot.initServer({
-      puppeteerOptions: {
-        headless: CONFIG.DEFAULT_HEADLESS,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      }
-    });
+    try {
+        bot = await hydraBot.initServer({
+            puppeteerOptions: {
+                headless: CONFIG.DEFAULT_HEADLESS,
+                args: ['--no-sandbox', '--disable-setuid-sandbox'],
+            }
+        });
 
-    console.log('Bot initialized successfully');
-    setupEventListeners(io);
-  } catch (error) {
-    console.error(errors.connectionError);
-  }
-
-  io.on('connection', (socket) => {
-    socket.on('attendProblem', async (data) => {
-      try {
-        const { chatId, attendantId } = data;
+        console.log('Bot initialized successfully');
         
-        // Criar um ID único para o evento
-        const eventId = `attend_${chatId}_${Date.now()}`;
+
+        screening = new Screening(io, getStatusUpdate); 
         
-        // Verificar se este evento já foi processado recentemente
-        if (processedEvents.has(eventId)) {
-          return;
-        }
-        
-        // Marcar evento como processado
-        processedEvents.add(eventId);
-        setTimeout(() => processedEvents.delete(eventId), EVENT_TIMEOUT);
+       
+        bot.on('connection', async (conn) => {
+            if (conn.connect) {
+                console.log(logs.connectionEstablished);
+                conn.io = io; 
+                botConnection = conn;
+                startListeningForMessages(conn, io);
+            } else {
+                console.error(errors.connectionError);
+            }
+        });
 
-        // Adicionar chat à lista de atendidos por humanos
-        humanAttendedChats.add(chatId);
-
-        // Atualizar status do problema no banco de dados
-        await Call.update(
-          { status: 'ACTIVE', attendantId },
-          { where: { chatId, status: 'PENDING' } }
-        );
-
-        // Enviar atualização de status para todos os clientes
-        sendStatusUpdateToMainProcess(io);
-
-        // Enviar mensagem de confirmação para o usuário
-        if (botConnection) {
-          await sendMessage(
-            botConnection,
-            chatId,
-            greetings.attendantAssigned
-          );
-        }
-      } catch (error) {
-        console.error(errors.processError.replace('%s', error));
-      }
-    });
-
-    socket.on('endChat', async (data) => {
-      try {
-        const { chatId, id, requestFeedback } = data;
-        
-        const eventId = `end_${chatId}_${Date.now()}`;
-        if (processedEvents.has(eventId)) {
-          return;
-        }
-        
-        processedEvents.add(eventId);
-        setTimeout(() => processedEvents.delete(eventId), EVENT_TIMEOUT);
-
-        humanAttendedChats.delete(chatId);
-
-        // Atualizar status no banco de dados
-        await Call.update(
-          { status: 'COMPLETED', dateTimeFinish: new Date() },
-          { where: { chatId, id } }
-        );
-
-        delete userCurrentTopic[chatId];
-
-        // Atualizar status
-        await sendStatusUpdateToMainProcess(io);
-
-      } catch (error) {
-        console.error(errors.processError.replace('%s', error));
-      }
-    });
-  });
+        setupIpcListeners(io);
+        setupSocketListeners(io);
+    } catch (error) {
+        console.error(errors.connectionError);
+    }
 }
 
 /**
@@ -186,36 +130,26 @@ async function startHydraBot(io) {
  * @param {Object} io - Instância do Socket.IO para comunicação em tempo real
  */
 function setupEventListeners(io) {
-  bot.on('connection', async (conn) => {
-    if (conn.connect) {
-      console.log(logs.connectionEstablished);
-      botConnection = conn;
-      startListeningForMessages(conn, io);
-    } else {
-      console.error(errors.connectionError);
-    }
-  });
-
-  setupIpcListeners(io);
-  setupSocketListeners(io);
+    setupIpcListeners(io);
+    setupSocketListeners(io);
 }
 
 function setupIpcListeners(io) {
-  // Listener para redirecionamento de chat
-  ipcMain.on('redirectToChat', (event, chatId) => {
-    redirectToWhatsAppChat(chatId);
-  });
+    // Listener para redirecionamento de chat
+    ipcMain.on('redirectToChat', (event, chatId) => {
+        redirectToWhatsAppChat(chatId);
+    });
 
-  // Listener para envio de mensagem
-  ipcMain.on('sendMessage', async (event, { chatId, message }) => {
-    if (botConnection) {
-      try {
-        await sendMessage(botConnection, chatId, message);
-      } catch (error) {
-        console.error(errors.sendError.replace('%s', error));
-      }
-    }
-  });
+    // Listener para envio de mensagem
+    ipcMain.on('sendMessage', async (event, { chatId, message }) => {
+        if (botConnection) {
+            try {
+                await sendMessage(botConnection, chatId, message);
+            } catch (error) {
+                console.error(errors.sendError.replace('%s', error));
+            }
+        }
+    });
 }
 
 function setupSocketListeners(io) {
@@ -261,20 +195,17 @@ function setupSocketListeners(io) {
 
                 humanAttendedChats.delete(chatId);
 
-                // 1. Atualizar status para completed imediatamente
                 await Call.update(
                     { status: 'COMPLETED', dateTimeFinish: new Date() },
                     { where: { chatId, id } }
                 );
 
-                // 2. Emitir atualização imediata da UI
                 const statusData = await getStatusUpdate();
                 io.emit('statusUpdate', statusData);
                 io.emit('chatCompleted', { chatId });
 
                 delete userCurrentTopic[chatId];
 
-                // 3. Solicitar feedback apenas se explicitamente solicitado
                 if (requestFeedback && botConnection && !userCurrentTopic[chatId]) {
                     setTimeout(async () => {
                         await ServiceFeedback.requestFeedback(botConnection, chatId);
@@ -363,10 +294,10 @@ async function startListeningForMessages(conn, io) {
                         await screening.proceedWithSchoolSelection(conn, chatId, screeningTopic.schools[schoolIndex]);
                         return;
                     case 'cpfTriaged':
-                        // Após triagem completa, continuar com fluxo normal
                         userCurrentTopic[chatId] = 'problema';
                         await sendProblemOptions(conn, chatId);
-                        return;
+                        screening.clearUserTopic(chatId);
+                        return; 
                 }
             }
 
@@ -387,6 +318,7 @@ async function startListeningForMessages(conn, io) {
             return;
         }
 
+        
         processedMessageIds.add(messageId);
         setTimeout(() => processedMessageIds.delete(messageId), MESSAGE_EXPIRY);
 
@@ -436,32 +368,85 @@ async function getStatusUpdate() {
         const [active, waiting, pending, completed] = await Promise.all([
             Call.findAll({
                 where: { status: 'ACTIVE' },
-                order: [['createdAt', 'DESC']],
-                include: [User, School]
+                order: [['id', 'DESC']],
+                include: [
+                    {
+                        model: CreateCall,
+                        as: 'createcall',
+                        include: [
+                            { model: User, as: 'user' },
+                            { model: School, as: 'school' }
+                        ]
+                    }
+                ]
             }),
             Call.findAll({
                 where: { status: 'WAITING' },
-                order: [['createdAt', 'ASC']],
-                include: [User, School]
+                order: [['id', 'ASC']],
+                include: [
+                    {
+                        model: CreateCall,
+                        as: 'createcall',
+                        include: [
+                            { model: User, as: 'user' },
+                            { model: School, as: 'school' }
+                        ]
+                    }
+                ]
             }),
             Call.findAll({
                 where: { status: 'PENDING' },
-                order: [['createdAt', 'DESC']],
-                include: [User, School]
+                order: [['id', 'DESC']],
+                include: [
+                    {
+                        model: CreateCall,
+                        as: 'createcall',
+                        include: [
+                            { model: User, as: 'user' },
+                            { model: School, as: 'school' }
+                        ]
+                    }
+                ]
             }),
             Call.findAll({
                 where: { status: 'COMPLETED' },
                 order: [['dateTimeFinish', 'DESC']],
                 limit: 10,
-                include: [User, School]
+                include: [
+                    {
+                        model: CreateCall,
+                        as: 'createcall',
+                        include: [
+                            { model: User, as: 'user' },
+                            { model: School, as: 'school' }
+                        ]
+                    }
+                ]
             })
         ]);
 
+        function flattenCall(call) {
+            const plain = call.get({ plain: true });
+            const user = plain.createcall && plain.createcall.user ? plain.createcall.user : {};
+            const school = plain.createcall && plain.createcall.school ? plain.createcall.school : {};
+            return {
+                id: plain.id,
+                chatId: plain.createcall ? plain.createcall.chatId : '',
+                name: user.name || '',
+                city: school.client || '',
+                position: plain.position || user.type || '',
+                school: school.name || '',
+                description: plain.description || '',
+                queuePosition: plain.queuePosition || '',
+                status: plain.status
+            };
+        }
+
         return {
-            activeChats: active,
-            waitingList: waiting,
-            problems: pending,
-            completedChats: completed
+            activeChats: active.map(flattenCall),
+            waitingList: waiting.map(flattenCall),
+            problems: pending.map(flattenCall),
+            completedChats: completed.map(flattenCall)
         };
     } catch (error) {
         console.error('Error getting status update:', error);
@@ -584,7 +569,7 @@ async function handleUserMessage(conn, chatId, messageText, io) {
                 userCurrentTopic[chatId] = 'problema';
                 await sendProblemOptions(conn, chatId);
                 screening.clearUserTopic(chatId); // Limpar estado da triagem
-                return;
+                return; // <-- Adicionado para evitar fluxo duplo
         }
 
         // Continuar com o resto do fluxo existente para outras mensagens
@@ -593,6 +578,13 @@ async function handleUserMessage(conn, chatId, messageText, io) {
         } else if (userCurrentTopic[chatId]?.stage === 'subproblema') {
             await handleSubProblemSelection(conn, chatId, messageText, io);
         }
+
+        // Use updateDatabaseAndNotify with proper parameters
+        await updateDatabaseAndNotify(
+            'UPDATE calls SET status = ? WHERE chatId = ?',
+            ['ACTIVE', chatId],
+            io
+        );
         
     } catch (error) {
         console.error(errors.processError.replace('%s', error));
@@ -1223,5 +1215,6 @@ module.exports = {
     redirectToWhatsAppChat,
     server,
     getRecentContacts,
-    getBotConnection: () => botConnection
+    getBotConnection: () => botConnection,
+    getStatusUpdate 
 };

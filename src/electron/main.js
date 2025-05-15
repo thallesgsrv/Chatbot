@@ -59,7 +59,7 @@ function createWindow() {
         width: 1200,
         height: 800,
         frame: true,
-        autoHideMenuBar: true,
+        autoHideMenuBar: false,
         backgroundColor: '#343a40',
         titleBarStyle: 'default',
         titleBarOverlay: {
@@ -120,6 +120,24 @@ server.use('/', filtersRoutes);
 server.use('/', reportsRoutes);
 server.use('/api/problem-cards', problemCardsRoutes); 
 
+// --- Adicione esta rota para o fetch do renderer funcionar ---
+server.get('/getProblemsData', async (req, res) => {
+    try {
+        // Use o mesmo método do status inicial, mas pode chamar getStatusUpdate do bot.js se preferir dados completos
+        const { getStatusUpdate } = require('../core/bot.js');
+        if (typeof getStatusUpdate === 'function') {
+            const data = await getStatusUpdate();
+            res.json(data);
+        } else {
+            // fallback para fetchSystemData
+            const data = await fetchSystemData();
+            res.json(data);
+        }
+    } catch (error) {
+        res.status(500).json({ error: 'Erro ao buscar dados do sistema' });
+    }
+});
+// ------------------------------------------------------------
 
 // Configuração dos eventos IPC
 function setupIpcHandlers() {

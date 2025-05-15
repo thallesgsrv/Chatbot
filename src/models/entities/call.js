@@ -40,6 +40,6 @@ const Call = sequelize.define(
     },
 
 );
-Call.belongsTo(CreateCall, { foreignKey: 'createCallId' });
+Call.belongsTo(CreateCall, { foreignKey: 'createCallId', as: 'createcall' });
 
 module.exports = Call;

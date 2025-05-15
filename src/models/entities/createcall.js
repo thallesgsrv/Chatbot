@@ -44,7 +44,7 @@ const CreateCall = sequelize.define(
 );
 
 
-CreateCall.belongsTo(User, { foreignKey: 'idUser' });
-CreateCall.belongsTo(School, { foreignKey: 'idSchool' });
+CreateCall.belongsTo(User, { foreignKey: 'idUser', as: 'user' });
+CreateCall.belongsTo(School, { foreignKey: 'idSchool', as: 'school' });
 
 module.exports = CreateCall;
