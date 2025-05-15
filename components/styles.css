@@ -8,7 +8,7 @@ body {
 
 .sidebar {
     width: 290px;
-    background: #343a40;  /* Changed from #17a2b8 back to original dark color */
+    background: #343a40; 
     color: #ffffff;
     min-height: 100vh;
     position: fixed;

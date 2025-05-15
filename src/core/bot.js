@@ -13,6 +13,7 @@ const { handleRecovery } = require('./recovery.js');
 const { getRecentContacts } = require('./contacts/getcontacts.js');
 const ServiceFeedback = require('./modules/serviceFeedback');
 const Screening = require('./modules/screening');
+const ProblemManager = require('./modules/problemmanager');
 
 // Import Sequelize models
 const Call = require('../models/entities/call');
@@ -75,6 +76,7 @@ const EVENT_TIMEOUT = 2000;
 
 // Initialize Screening instance
 let screening;
+let problemManager;
 
 /**
  * Template de boas-vindas e coleta de informações
@@ -103,15 +105,15 @@ async function startHydraBot(io) {
 
         console.log('Bot initialized successfully');
         
-
-        screening = new Screening(io, getStatusUpdate); 
+        screening = new Screening(io, getStatusUpdate, sendProblemOptions); 
+        problemManager = new ProblemManager(io, botConnection);
         
-       
         bot.on('connection', async (conn) => {
             if (conn.connect) {
                 console.log(logs.connectionEstablished);
                 conn.io = io; 
                 botConnection = conn;
+                problemManager.setBotConnection(conn);
                 startListeningForMessages(conn, io);
             } else {
                 console.error(errors.connectionError);
@@ -294,8 +296,6 @@ async function startListeningForMessages(conn, io) {
                         await screening.proceedWithSchoolSelection(conn, chatId, screeningTopic.schools[schoolIndex]);
                         return;
                     case 'cpfTriaged':
-                        userCurrentTopic[chatId] = 'problema';
-                        await sendProblemOptions(conn, chatId);
                         screening.clearUserTopic(chatId);
                         return; 
                 }
@@ -494,10 +494,14 @@ async function getWaitingPosition(chatId) {
     try {
         const waitingUsers = await Call.findAll({
             where: { status: 'WAITING' },
-            order: [['createdAt', 'ASC']]
+            order: [[{ model: CreateCall, as: 'createcall' }, 'date', 'ASC']],
+            include: [{
+                model: CreateCall,
+                as: 'createcall'
+            }]
         });
 
-        const position = waitingUsers.findIndex(call => call.chatId === chatId) + 1;
+        const position = waitingUsers.findIndex(call => call.createcall && call.createcall.chatId === chatId) + 1;
         return position || waitingUsers.length + 1;
     } catch (error) {
         console.error('Erro ao obter posição na fila:', error);
@@ -508,129 +512,71 @@ async function getWaitingPosition(chatId) {
 
 async function handleUserMessage(conn, chatId, messageText, io) {
     try {
-        // Ignorar mensagens de grupos
-        if (chatId.endsWith('@g.us')) {
-            return;
-        }
+        if (chatId.endsWith('@g.us')) return;
+        if (humanAttendedChats.has(chatId)) return;
 
-        // Se o chat está sendo atendido por humano, ignorar
-        if (humanAttendedChats.has(chatId)) {
-            return;
-        }
-
-        // Verificar estado do chat
         const chatState = await Call.findOne({
-            where: { chatId },
-            order: [['createdAt', 'DESC']]
+            include: [{
+                model: CreateCall,
+                as: 'createcall',
+                where: { chatId }
+            }],
+            order: [[{ model: CreateCall, as: 'createcall' }, 'date', 'DESC']]
         });
 
-        // Verificar se já está em processo de triagem
         const screeningTopic = screening.getUserTopic(chatId);
         
-        // Se não está em triagem, iniciar triagem
         if (!screeningTopic) {
             await screening.startScreening(conn, chatId);
-            // Sincronizar o estado global com o estado do screening
-            userCurrentTopic[chatId] = { state: 'awaitingCpf' };
             return;
         }
 
-        // Processar conforme o estado da triagem
-        switch (screeningTopic.state) {
-            case 'awaitingCpf':
-                await screening.handleCpfInput(conn, chatId, messageText, io);
-                return;
-            case 'awaitingTypeSelection':
-                const typeIndex = parseInt(messageText) - 1;
-                if (isNaN(typeIndex) || typeIndex < 0 || typeIndex >= screeningTopic.types.length) {
-                    await sendMessage(conn, chatId, errors.invalidOption);
-                    return;
-                }
-                await screening.handleTypeSelection(conn, chatId, typeIndex, screeningTopic.types, screeningTopic.schoolsByTypeCity);
-                return;
-            case 'awaitingCitySelection':
-                const cityIndex = parseInt(messageText) - 1;
-                if (isNaN(cityIndex) || cityIndex < 0 || cityIndex >= screeningTopic.cities.length) {
-                    await sendMessage(conn, chatId, errors.invalidOption);
-                    return;
-                }
-                await screening.handleCitySelection(conn, chatId, cityIndex, screeningTopic.cities, screeningTopic.type);
-                return;
-            case 'awaitingSchoolSelection':
-                const schoolIndex = parseInt(messageText) - 1;
-                if (isNaN(schoolIndex) || schoolIndex < 0 || schoolIndex >= screeningTopic.schools.length) {
-                    await sendMessage(conn, chatId, errors.invalidOption);
-                    return;
-                }
-                await screening.proceedWithSchoolSelection(conn, chatId, screeningTopic.schools[schoolIndex]);
-                return;
-            case 'cpfTriaged':
-                // Após triagem completa, continuar com fluxo normal
-                userCurrentTopic[chatId] = 'problema';
-                await sendProblemOptions(conn, chatId);
-                screening.clearUserTopic(chatId); // Limpar estado da triagem
-                return; // <-- Adicionado para evitar fluxo duplo
+        if (screeningTopic.state) {
+            await handleScreeningState(conn, chatId, messageText, screeningTopic, io);
+            return;
         }
 
-        // Continuar com o resto do fluxo existente para outras mensagens
-        if (userCurrentTopic[chatId] === 'problema') {
-            await handleProblemSelection(conn, chatId, messageText, io);
-        } else if (userCurrentTopic[chatId]?.stage === 'subproblema') {
-            await handleSubProblemSelection(conn, chatId, messageText, io);
+        const currentTopic = problemManager.getUserTopic(chatId);
+        
+        if (currentTopic === 'problema') {
+            await problemManager.handleProblemSelection(conn, chatId, messageText);
+        } else if (currentTopic?.stage === 'subproblema') {
+            await problemManager.handleSubProblemSelection(conn, chatId, messageText);
         }
 
-        // Use updateDatabaseAndNotify with proper parameters
-        await updateDatabaseAndNotify(
-            'UPDATE calls SET status = ? WHERE chatId = ?',
-            ['ACTIVE', chatId],
-            io
-        );
+        if (chatState) {
+            await updateDatabaseAndNotify(
+                'UPDATE "call" SET status = ? WHERE id = ?',
+                ['ACTIVE', chatState.id],
+                io
+            );
+        }
         
     } catch (error) {
-        console.error(errors.processError.replace('%s', error));
+        console.error('Erro ao processar mensagem:', error);
+        await sendMessage(conn, chatId, errors.tryAgainLater);
     }
 }
 
-//Função para obter estado do chat
-async function getChatState(chatId) {
-    try {
-        const chatState = await Call.findOne({
-            where: { chatId },
-            order: [['createdAt', 'DESC']]
-        });
-        return chatState;
-    } catch (error) {
-        console.error('Erro ao obter estado do chat:', error);
-        return null;
-    }
-}
-
-function getRandomDelay() {
-    return Math.floor(Math.random() * (RESPONSE_DELAY.MAX - RESPONSE_DELAY.MIN + 1) + RESPONSE_DELAY.MIN);
-}
-
-function getRandomWelcomeMessage() {
-    const messages = greetings.welcome;
-    if (!Array.isArray(messages) || messages.length === 0) {
-        return 'Olá! Por favor, envie suas informações no formato:';
-    }
-    const randomIndex = Math.floor(Math.random() * messages.length);
-    return messages[randomIndex];
-}
-
-async function sendFormattedMessage(conn, chatId, type) {
-    switch (type) {
-        case 'template':
-            // Mantém delay inicial longo
-            await new Promise(resolve => setTimeout(resolve, getRandomDelay()));
-            await sendMessage(conn, chatId, getRandomWelcomeMessage());
-            // Reduz delay do template
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            await sendMessage(conn, chatId, greetings.template);
+async function handleScreeningState(conn, chatId, messageText, screeningTopic, io) {
+    switch (screeningTopic.state) {
+        case 'awaitingCpf':
+            await screening.handleCpfInput(conn, chatId, messageText, io);
             break;
-        default:
-            await sendMessage(conn, chatId, getRandomWelcomeMessage());
+        case 'awaitingTypeSelection':
+            await handleTypeSelection(conn, chatId, messageText, screeningTopic);
+            break;
+        case 'awaitingSchoolSelection':
+            await handleSchoolSelection(conn, chatId, messageText, screeningTopic);
+            break;
+        case 'cpfTriaged':
+            screening.clearUserTopic(chatId);
+            break;
     }
+}
+
+async function sendProblemOptions(conn, chatId) {
+    await problemManager.sendProblemOptions(conn, chatId);
 }
 
 // Processa fechamento do chat
@@ -639,7 +585,14 @@ async function handleChatClosed(chatId, io) {
         // Marcar chat como concluído
         await Call.update(
             { status: 'COMPLETED', dateTimeFinish: new Date() },
-            { where: { chatId } }
+            {
+                where: {},
+                include: [{
+                    model: CreateCall,
+                    as: 'createcall',
+                    where: { chatId }
+                }]
+            }
         );
 
         // Obter próximo usuário na lista de espera
@@ -650,16 +603,18 @@ async function handleChatClosed(chatId, io) {
             // Atualizar status do próximo usuário
             await Call.update(
                 { status: 'ACTIVE' },
-                { where: { chatId: nextUser.chatId } }
+                {
+                    where: { id: nextUser.id }
+                }
             );
 
             // Enviar mensagem para o próximo usuário
             await sendMessage(
                 botConnection,
-                nextUser.chatId,
-                greetings.nextInLine.replace('%s', nextUser.name)
+                nextUser.createcall.chatId,
+                greetings.nextInLine.replace('%s', nextUser.createcall.user ? nextUser.createcall.user.name : '')
             );
-            await sendProblemOptions(botConnection, nextUser.chatId);
+            await sendProblemOptions(botConnection, nextUser.createcall.chatId);
         }
 
         // Atualizar posições de todos os usuários em espera
@@ -728,252 +683,6 @@ async function sendMessage(conn, chatId, message) {
     });
 }
 
-// Envia opções de problema para o usuário
-async function sendProblemOptions(conn, chatId) {
-    await sendMessage(conn, chatId, dialogs.problemOptions);
-}
-
-/**
- * Manipula a seleção de problemas pelo usuário
- * Direciona para fluxos específicos baseado na escolha
- * @param {Object} conn - Conexão com WhatsApp
- * @param {string} chatId - ID do chat
- * @param {string} messageText - Texto da mensagem recebida
- * @param {Object} io - Instância do Socket.IO
- */
-async function handleProblemSelection(conn, chatId, messageText, io) {
-    switch (messageText) {
-        case '1':
-            await sendMessage(conn, chatId, dialogs.subProblems.accessSystem.title);
-            userCurrentTopic[chatId] = { problem: 'Acesso ao sistema', stage: 'subproblema' };
-            break;
-        case '2':
-            await sendMessage(conn, chatId, dialogs.subProblems.registration.title);
-            userCurrentTopic[chatId] = { problem: 'Cadastro de aluno/funcionário', stage: 'subproblema' };
-            break;
-        case '3':
-            await sendMessage(conn, chatId, dialogs.subProblems.classLog.title);
-            userCurrentTopic[chatId] = { problem: 'Diário de classe', stage: 'subproblema' };
-            break;
-        case '4':
-            await sendMessage(conn, chatId, dialogs.subProblems.studentMovement.title);
-            userCurrentTopic[chatId] = { problem: 'Movimentação de Alunos', stage: 'subproblema' };
-            break;
-        case '5':
-            await sendMessage(conn, chatId, dialogs.rfaceContact);
-            delete userCurrentTopic[chatId];
-            // Emitir evento endChat
-            io.emit('endChat', { chatId });
-            await closeChat(chatId, io);
-            break;
-        case '6':
-            await sendMessage(conn, chatId, dialogs.describeIssue);
-            userCurrentTopic[chatId] = { 
-                state: 'descricaoProblema',
-                type: 'custom'
-            };
-            break;
-        case commands.backCommand:
-            await sendProblemOptions(conn, chatId);
-            break;
-        default:
-            await sendMessage(conn, chatId, errors.invalidOption);
-    }
-}
-
-// Envia opções de subproblema para o usuário
-async function sendSubProblemOptions(conn, chatId, problem) {
-  const subProblemOptions = getSubProblemOptions(problem);
-  userCurrentTopic[chatId] = { problem, stage: 'subproblema' }; 
-  await sendMessage(conn, chatId, subProblemOptions);
-}
-
-function getSubProblemOptions(problem) {
-    const key = PROBLEM_MAPPINGS[problem];
-    if (key && dialogs.subProblems[key]) {
-        return `${dialogs.subProblems[key].title}\n\n${commands.backMessage}`;
-    }
-    return errors.invalidOption;
-}
-function getSubProblemText(problem, subProblem) {
-    const key = PROBLEM_MAPPINGS[problem];
-    if (key && dialogs.subProblems[key]?.options[subProblem]) {
-        return dialogs.subProblems[key].options[subProblem];
-    }
-    return 'Outro problema';
-}
-
-function getVideoUrlForSubProblem(subProblem, chatId) {
-    const mainProblem = userCurrentTopic[chatId].problem;
-    const key = PROBLEM_MAPPINGS[mainProblem];
-    if (key && dialogs.subProblems[key]?.videos[subProblem]) {
-        return dialogs.subProblems[key].videos[subProblem];
-    }
-    return errors.invalidOption;
-}
-
-// Processa seleção de subproblema
-async function handleSubProblemSelection(conn, chatId, messageText, io) {
-    try {
-        if (messageText === 'voltar') {
-            userCurrentTopic[chatId] = 'problema';
-            await sendProblemOptions(conn, chatId);
-            return;
-        }
-
-        const mainProblem = userCurrentTopic[chatId].problem;
-        const problemKey = PROBLEM_MAPPINGS[mainProblem];
-
-        // Verifica se é uma opção válida para o problema específico
-        if (!problemKey || !dialogs.subProblems[problemKey]?.options[messageText]) {
-            await sendMessage(conn, chatId, errors.invalidOption);
-            return;
-        }
-
-        const subProblemText = dialogs.subProblems[problemKey].options[messageText];
-        const videoUrl = dialogs.subProblems[problemKey].videos[messageText];
-
-        // Buscar informações do usuário
-        const userInfo = await User.findOne({
-            where: { chatId },
-            include: [School]
-        });
-
-        if (!userInfo) {
-            throw new Error('Usuário não encontrado');
-        }
-
-        // Criar novo registro de problema
-        const problemDescription = `${mainProblem} - ${subProblemText}`;
-        const date = new Date();
-
-        await Call.create({
-            chatId,
-            description: problemDescription,
-            status: 'PENDING',
-            date
-        });
-
-        await sendMessage(conn, chatId, dialogs.watchVideo.replace('%s', videoUrl));
-        await sendMessage(conn, chatId, 'O vídeo foi suficiente para resolver seu problema? (sim/não)');
-        userCurrentTopic[chatId] = 'videoFeedback';
-
-        // Emitir evento com o novo problema
-        io.emit('userProblem', problemDescription, chatId, userInfo.name);
-        await sendStatusUpdateToMainProcess(io);
-
-    } catch (error) {
-        console.error('Erro em handleSubProblemSelection:', error);
-        await sendMessage(conn, chatId, 'Ocorreu um erro ao processar sua solicitação. Por favor, tente novamente.');
-        userCurrentTopic[chatId] = 'problema';
-    }
-}
-
-// Processa feedback do vídeo
-async function handleVideoFeedback(conn, chatId, messageText, io) {
-    try {
-        if (messageText.toLowerCase() === 'sim') {
-            await sendMessage(conn, chatId, finished.helpfulVideo);
-            await ServiceFeedback.requestFeedback(botConnection, chatId);
-            userCurrentTopic[chatId] = 'serviceFeedback';
-        } else if (messageText.toLowerCase() === 'não') {
-            await sendMessage(conn, chatId, dialogs.describeIssue);
-            userCurrentTopic[chatId] = {
-                state: 'descricaoProblema',
-                previousState: 'videoFeedback'
-            };
-        } else {
-            await sendMessage(conn, chatId, errors.invalidYesNo);
-        }
-    } catch (error) {
-        console.error('Erro em handleVideoFeedback:', error);
-    }
-}
-
-// Processa descrição do problema
-async function handleProblemDescription(conn, chatId, messageText, io) {
-    try {
-        // Get user info for possible new problem creation
-        const userInfo = await User.findOne({
-            where: { chatId },
-            include: [School]
-        });
-
-        if (!userInfo) {
-            throw new Error('Usuário não encontrado');
-        }
-
-        const date = new Date();
-        const description = messageText;
-
-        // Check if this is from video feedback "não" response or option 6
-        const isFromVideo = userCurrentTopic[chatId]?.previousState === 'videoFeedback';
-
-        if (isFromVideo) {
-            // Update the most recent problem for video feedback case
-            const existingProblem = await Call.findOne({
-                where: { chatId },
-                order: [['createdAt', 'DESC']]
-            });
-
-            if (existingProblem) {
-                await Call.update(
-                    { description, date },
-                    { where: { id: existingProblem.id } }
-                );
-
-                io.emit('userProblem', {
-                    description,
-                    chatId,
-                    name: userInfo.name,
-                    city: userInfo.city,
-                    position: userInfo.type,
-                    school: userInfo.school.name
-                });
-            }
-        } else {
-            // Create new problem record for option 6
-            await Call.create({
-                chatId,
-                description,
-                status: 'PENDING',
-                date
-            });
-
-            // Emit new problem event
-            io.emit('userProblem', {
-                description,
-                chatId,
-                name: userInfo.name,
-                city: userInfo.city,
-                position: userInfo.type,
-                school: userInfo.school.name
-            });
-        }
-
-        // Common actions for both cases
-        await sendMessage(
-            conn, 
-            chatId, 
-            finished.problemRegistered
-        );
-
-        await sendStatusUpdateToMainProcess(io);
-        humanAttendedChats.add(chatId);
-        delete userCurrentTopic[chatId];
-
-    } catch (error) {
-        console.error('Erro em handleProblemDescription:', error);
-        await sendMessage(
-            conn, 
-            chatId, 
-            errors.tryAgainLater
-        );
-        userCurrentTopic[chatId] = 'problema';
-        await sendProblemOptions(conn, chatId);
-    }
-}
-
 // Salvar informações do cliente no banco de dados
 async function saveClientInfoToDatabase(userInfo, chatId, status, io) {
     try {
@@ -1012,37 +721,6 @@ async function saveClientInfoToDatabase(userInfo, chatId, status, io) {
     }
 }
 
-// Salvar problema no banco de dados
-async function saveProblemToDatabase(problemData, io) {
-    try {
-        await Call.update({
-            description: problemData.description
-        }, {
-            where: { id: problemData.problemId }
-        });
-
-        await sendStatusUpdateToMainProcess(io);
-    } catch (error) {
-        console.error('Error saving problem:', error);
-    }
-}
-
-// Marcar problema como concluído no banco de dados
-async function markProblemAsCompleted(problemId, io) {
-    try {
-        await Call.update({
-            status: 'COMPLETED',
-            dateTimeFinish: new Date()
-        }, {
-            where: { id: problemId }
-        });
-
-        await sendStatusUpdateToMainProcess(io);
-    } catch (error) {
-        console.error('Error marking problem as completed:', error);
-    }
-}
-
 // Enviar atualização de status para o processo principal
 async function sendStatusUpdateToMainProcess(io) {
     try {
@@ -1064,97 +742,46 @@ async function sendStatusUpdateToMainProcess(io) {
     }
 }
 
-// Enviar problema para o front-end
-function sendProblemToFrontEnd(problemData) {
-  if (problemData.description.startsWith('Subtópico:')) {
-    return;
-  }
-  ipcMain.emit('userProblem', null, problemData.description, problemData.chatId, problemData.name);
-}
-
-// Fechar o chat
-async function closeChat(chatId, io) {
+async function updateWaitingUsers(io) {
     try {
-        // 1. Atualizar status para completed imediatamente
-        await Call.update(
-            { status: 'COMPLETED', dateTimeFinish: new Date() },
-            { where: { chatId } }
-        );
-
-        // 2. Emitir atualização imediata da UI
-        const statusData = await getStatusUpdate();
-        io.emit('statusUpdate', statusData);
-
-        // 4. Processa próximo usuário na fila
-        const nextUser = await getNextInWaitingList();
-        if (nextUser) {
-            await Call.update(
-                { status: 'ACTIVE' },
-                { where: { chatId: nextUser.chatId } }
-            );
-
-            await sendMessage(
-                botConnection,
-                nextUser.chatId,
-                greetings.nextInLine.replace('%s', nextUser.name)
-            );
-            await sendProblemOptions(botConnection, nextUser.chatId);
-        }
-
-        // 5. Atualiza posições dos usuários em espera
-        await updateWaitingUsers(io);
-
-    } catch (error) {
-        console.error(errors.processError.replace('%s', error));
-    }
-}
-
-// Função para obter próximo da fila
-async function getNextInWaitingList() {
-    try {
-        const nextCall = await Call.findOne({
+        const waitingUsers = await Call.findAll({
             where: { status: 'WAITING' },
-            order: [['createdAt', 'ASC']],
-            include: [User, School]
+            order: [[{ model: CreateCall, as: 'createcall' }, 'date', 'ASC']],
+            include: [{
+                model: CreateCall,
+                as: 'createcall',
+                include: [User]
+            }]
         });
-        return nextCall;
+
+        // Para cada usuário em espera, calcular e enviar sua posição atual
+        for (let i = 0; i < waitingUsers.length; i++) {
+            const call = waitingUsers[i];
+            const currentPosition = i + 1; // Posição baseada no índice + 1
+            const user = call.createcall && call.createcall.user ? call.createcall.user : {};
+            const chatId = call.createcall ? call.createcall.chatId : '';
+            const name = user.name || '';
+            
+            const message = greetings.queueUpdate.replace('%s', name).replace('%d', currentPosition);
+            
+            if (botConnection && chatId) {
+                await sendMessage(botConnection, chatId, message);
+            }
+        }
     } catch (error) {
-        console.error('Error getting next in waiting list:', error);
-        return null;
+        console.error('Erro ao atualizar usuários em espera:', error);
     }
 }
 
-
-async function attendNextUserInQueue(conn, io) {
-    const nextUser = activeChatsList.find(chat => chat.isWaiting);
-    if (nextUser) {
-        nextUser.isWaiting = false;
-        await sendMessage(
-            conn, 
-            nextUser.chatId, 
-            commands.nextInQueueMessage.replace('%s', nextUser.name)
-        );
-        await sendProblemOptions(conn, nextUser.chatId);
-        userCurrentTopic[nextUser.chatId] = 'problema';
-        sendStatusUpdateToMainProcess(io);
-    }
-}
-
-// Atender o próximo usuário na fila
-async function attendNextUserInQueue(conn, io) {
-  const nextUser = activeChatsList.find(chat => chat.isWaiting);
-  if (nextUser) {
-    nextUser.isWaiting = false;
-    await sendMessage(conn, nextUser.chatId, `Obrigado por aguardar, ${nextUser.name}. Estamos iniciando seu atendimento.`);
-    await sendProblemOptions(conn, nextUser.chatId);
-    userCurrentTopic[nextUser.chatId] = 'problema';
-    sendStatusUpdateToMainProcess(io);
-  }
-}
-
-// Obter a lista de espera
-function getWaitingList() {
-  return activeChatsList.filter(chat => chat.isWaiting);
+// Função auxiliar para converter status em texto legível
+function getStatusText(status) {
+    const statusMap = {
+        'ACTIVE': 'Em atendimento',
+        'WAITING': 'Em espera',
+        'COMPLETED': 'Concluído',
+        'PENDING': 'Pendente'
+    };
+    return statusMap[status] || status;
 }
 
 function redirectToWhatsAppChat(chatId) {
@@ -1176,43 +803,9 @@ function redirectToWhatsAppChat(chatId) {
     }
 }
 
-async function updateWaitingUsers(io) {
-    try {
-        const waitingUsers = await Call.findAll({
-            where: { status: 'WAITING' },
-            order: [['createdAt', 'ASC']]
-        });
-
-        // Para cada usuário em espera, calcular e enviar sua posição atual
-        for (let i = 0; i < waitingUsers.length; i++) {
-            const user = waitingUsers[i];
-            const currentPosition = i + 1; // Posição baseada no índice + 1
-            
-            const message = greetings.queueUpdate.replace('%s', user.name).replace('%d', currentPosition);
-            
-            if (botConnection) {
-                await sendMessage(botConnection, user.chatId, message);
-            }
-        }
-    } catch (error) {
-        console.error('Erro ao atualizar usuários em espera:', error);
-    }
-}
-
-// Função auxiliar para converter status em texto legível
-function getStatusText(status) {
-    const statusMap = {
-        'ACTIVE': 'Em atendimento',
-        'WAITING': 'Em espera',
-        'COMPLETED': 'Concluído',
-        'PENDING': 'Pendente'
-    };
-    return statusMap[status] || status;
-}
-
 module.exports = {
     startHydraBot,
-    redirectToWhatsAppChat,
+    redirectToWhatsAppChat, 
     server,
     getRecentContacts,
     getBotConnection: () => botConnection,
