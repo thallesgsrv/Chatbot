@@ -14,6 +14,14 @@ const Card = sequelize.define(
             type: DataTypes.STRING,
             allowNull: false,
         },
+        callId: {
+            type: DataTypes.BIGINT,
+            allowNull: false,
+            references: {
+                model: Call,
+                key: 'id'
+            }
+        },
         status: {
             type: DataTypes.ENUM('PENDING', 'COMPLETED'),
             allowNull: false,
@@ -26,6 +34,6 @@ const Card = sequelize.define(
     },
 );
 
-Card.hasOne(Call);
+Card.belongsTo(Call, { foreignKey: 'callId' });
 
 module.exports = Card;

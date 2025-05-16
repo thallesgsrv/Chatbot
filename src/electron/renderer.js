@@ -386,6 +386,10 @@ async function handleAttendProblem(problem) {
         }
 
         const modal = new bootstrap.Modal(document.getElementById('attendantModal'));
+        
+        // Request updated attendant list before showing modal
+        socket.emit('getAttendants');
+        
         modal.show();
 
         return new Promise((resolve, reject) => {
@@ -432,9 +436,10 @@ async function handleAttendProblem(problem) {
                         problemListContainer.innerHTML = '<div class="empty-message">Nenhum problema relatado.</div>';
                     }
 
+                    // Emitir evento com dados corretos
                     socket.emit('attendProblem', {
                         chatId: problem.chatId,
-                        attendantId: attendantName,
+                        attendantName: attendantName, 
                         problemDescription: problem.description
                     });
 
@@ -747,9 +752,7 @@ const modalHTML = `
                 <div class="form-group">
                     <label for="attendantSelect">Selecione o Atendente:</label>
                     <select class="form-control" id="attendantSelect">
-                        <option value="Júnior Araújo">Júnior Araújo</option>
-                        <option value="Júnior Parnaiba">Júnior Parnaiba</option>
-                        <option value="outro">Outro</option>
+                        <option value="">Carregando atendentes...</option>
                     </select>
                 </div>
                 <div class="form-group mt-3" id="otherAttendantGroup" style="display: none;">
@@ -767,6 +770,26 @@ const modalHTML = `
         </div>
     </div>
 </div>`;
+
+// Add socket listener for attendant list
+socket.on('attendantList', (attendants) => {
+    const attendantSelect = document.getElementById('attendantSelect');
+    attendantSelect.innerHTML = ''; // Clear existing options
+    
+    // Add attendants from database
+    attendants.forEach(attendant => {
+        const option = document.createElement('option');
+        option.value = attendant.name;
+        option.textContent = attendant.name;
+        attendantSelect.appendChild(option);
+    });
+    
+    // Add 'outro' option at the end
+    const outroOption = document.createElement('option');
+    outroOption.value = 'outro';
+    outroOption.textContent = 'Outro';
+    attendantSelect.appendChild(outroOption);
+});
 
 document.body.insertAdjacentHTML('beforeend', modalHTML);
 

@@ -120,7 +120,7 @@ server.use('/', filtersRoutes);
 server.use('/', reportsRoutes);
 server.use('/api/problem-cards', problemCardsRoutes); 
 
-// --- Adicione esta rota para o fetch do renderer funcionar ---
+//Rota de envio para o renderer
 server.get('/getProblemsData', async (req, res) => {
     try {
         // Use o mesmo método do status inicial, mas pode chamar getStatusUpdate do bot.js se preferir dados completos
@@ -137,7 +137,6 @@ server.get('/getProblemsData', async (req, res) => {
         res.status(500).json({ error: 'Erro ao buscar dados do sistema' });
     }
 });
-// ------------------------------------------------------------
 
 // Configuração dos eventos IPC
 function setupIpcHandlers() {

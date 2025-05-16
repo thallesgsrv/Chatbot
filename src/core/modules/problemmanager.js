@@ -2,6 +2,7 @@ const Call = require('../../models/entities/call.js');
 const User = require('../../models/entities/user.js');
 const School = require('../../models/entities/school.js');
 const CreateCall = require('../../models/entities/createcall.js');
+const Attendant = require('../../models/entities/attendant.js');
 const dialogs = require('../messages/dialogs.json');
 const errors = require('../messages/errors.json');
 const finished = require('../messages/finished.json');
@@ -438,6 +439,124 @@ class ProblemManager {
 
     setScreening(screening) {
         this.screening = screening;
+    }
+
+    async handleProblemAttendance(conn, problem, attendantName) {
+        try {
+            console.log('Iniciando atendimento para:', problem);
+
+            // Procurar ou criar o atendente
+            const [attendant] = await Attendant.findOrCreate({
+                where: { name: attendantName }
+            });
+
+            // Buscar o createCall mais recente para este chatId
+            const createCall = await CreateCall.findOne({
+                where: { chatId: problem.chatId },
+                order: [['date', 'DESC']]
+            });
+
+            if (!createCall) {
+                throw new Error('CreateCall não encontrado');
+            }
+
+            // Buscar e atualizar o call
+            const call = await Call.findOne({
+                where: { createCallId: createCall.id }
+            });
+
+            if (call) {
+                await call.update({
+                    attendantId: attendant.id,
+                    startDate: new Date()
+                });
+            }
+
+            // Marcar chat como atendido por humano
+            this.markChatAsHumanAttended(problem.chatId);
+
+            // Enviar mensagem de introdução do atendente
+            if (conn) {
+                let whatsappId = problem.chatId;
+                if (!whatsappId.includes('@')) {
+                    whatsappId = `${whatsappId}@c.us`;
+                }
+                
+                await conn.client.sendMessage({
+                    to: whatsappId,
+                    body: greetings.attendantIntroduction.replace('%s', attendantName),
+                    options: { type: 'sendText' }
+                });
+            }
+
+            // Emitir evento de problema atendido
+            this.io.emit('problemAttended', {
+                chatId: problem.chatId,
+                attendantName: attendantName
+            });
+
+            // Atualizar status geral
+            this.io.emit('statusUpdate');
+
+        } catch (error) {
+            console.error('Erro ao atender problema:', error);
+            throw error;
+        }
+    }
+
+    async handleChatEnd(conn, chatId, cardData = null) {
+        try {
+            // Find the most recent createCall for the chatId
+            const createCall = await CreateCall.findOne({
+                where: { chatId },
+                order: [['date', 'DESC']]
+            });
+
+            if (!createCall) {
+                throw new Error('CreateCall não encontrado');
+            }
+
+            // Find and update the call
+            const call = await Call.findOne({
+                where: { createCallId: createCall.id }
+            });
+
+            if (call) {
+                await call.update({
+                    status: 'COMPLETED',
+                    dateTimeFinish: new Date()
+                });
+
+                // Create card if cardData exists
+                if (cardData && cardData.cardLink) {
+                    await Card.create({
+                        link: cardData.cardLink,
+                        status: 'PENDING',
+                        callId: call.id
+                    });
+                }
+
+                // Remove chat from human attended list
+                this.sharedState.removeChatFromHumanAttended(chatId);
+
+                // Emit events
+                this.io.emit('chatCompleted', { chatId });
+                this.io.emit('statusUpdate');
+
+                // Request feedback directly
+                if (conn) {
+                    await this.sendMessage(conn, chatId, finished.feedbackRequest);
+                    this.userCurrentTopic[chatId] = { 
+                        state: 'awaitingRating',
+                        callId: call.id
+                    };
+                }
+            }
+
+        } catch (error) {
+            console.error('Erro ao finalizar chat:', error);
+            throw error;
+        }
     }
 }
 

@@ -13,14 +13,13 @@ const Attendant = sequelize.define(
         name: {
             type: DataTypes.STRING,
             allowNull: false,
+            unique: true 
         },
     },
     {
         freezeTableName: true,
         timestamps: false,
     },
-
-
 );
 
 Attendant.hasMany(Call);

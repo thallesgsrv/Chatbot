@@ -11,7 +11,6 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const { handleRecovery } = require('./recovery.js'); 
 const { getRecentContacts } = require('./contacts/getcontacts.js');
-const ServiceFeedback = require('./modules/serviceFeedback');
 const Screening = require('./modules/screening');
 const ProblemManager = require('./modules/problemmanager');
 
@@ -69,7 +68,7 @@ let isProcessingQueue = false;
 let userCurrentTopic = {};
 const messageHistory = new Map();
 
-// Add these two new declarations
+
 const processedEvents = new Set();
 const EVENT_TIMEOUT = 2000; 
 
@@ -178,23 +177,57 @@ function setupIpcListeners(io) {
 function setupSocketListeners(io) {
     console.log(logs.socketConfigured);
     
-    io.on('connection', (socket) => {
+    io.on('connection', async (socket) => {
+
+        socket.on('getAttendants', async () => {
+            try {
+                const attendants = await Attendant.findAll({
+                    order: [['name', 'ASC']]
+                });
+                socket.emit('attendantList', attendants);
+            } catch (error) {
+                console.error('Erro ao buscar atendentes:', error);
+                socket.emit('error', { message: 'Erro ao buscar atendentes' });
+            }
+        });
+
         socket.on('createCard', async (data) => {
             try {
                 console.log('Recebendo solicitação de criação de card:', data);
                 const { chatId, cardLink } = data;
                 
+                // First find the latest call for this chat
+                const createCall = await CreateCall.findOne({
+                    where: { chatId },
+                    order: [['date', 'DESC']]
+                });
+
+                if (!createCall) {
+                    throw new Error('CreateCall não encontrado');
+                }
+
+                const call = await Call.findOne({
+                    where: { createCallId: createCall.id }
+                });
+
+                if (!call) {
+                    throw new Error('Call não encontrado');
+                }
+
+                // Create the card with proper callId
                 const card = await Card.create({
-                    chatId,
-                    cardLink,
-                    cardStatus: 'PENDING'
+                    link: cardLink,
+                    callId: call.id,
+                    status: 'PENDING'
                 });
 
                 console.log('Card criado com sucesso:', card);
                 io.emit('cardCreated', card);
             } catch (error) {
                 console.error('Erro ao processar criação do card:', error);
-                socket.emit('cardError', { error: 'Erro interno do servidor' });
+                socket.emit('cardError', { 
+                    error: 'Erro ao criar card: ' + error.message 
+                });
             }
         });
 
@@ -208,7 +241,7 @@ function setupSocketListeners(io) {
 
         socket.on('endChat', async (data) => {
             try {
-                const { chatId, id, requestFeedback } = data;
+                const { chatId } = data;
                 
                 const eventId = `end_${chatId}_${Date.now()}`;
                 if (processedEvents.has(eventId)) return;
@@ -216,28 +249,68 @@ function setupSocketListeners(io) {
                 processedEvents.add(eventId);
                 setTimeout(() => processedEvents.delete(eventId), EVENT_TIMEOUT);
 
-                sharedState.removeChatFromHumanAttended(chatId);
-
-                await Call.update(
-                    { status: 'COMPLETED', dateTimeFinish: new Date() },
-                    { where: { chatId, id } }
-                );
-
-                const statusData = await getStatusUpdate();
-                io.emit('statusUpdate', statusData);
-                io.emit('chatCompleted', { chatId });
-
-                delete userCurrentTopic[chatId];
-
-                if (requestFeedback && botConnection && !userCurrentTopic[chatId]) {
-                    setTimeout(async () => {
-                        await ServiceFeedback.requestFeedback(botConnection, chatId);
-                        userCurrentTopic[chatId] = 'serviceFeedback';
-                    }, 500);
+                if (problemManager) {
+                    await problemManager.handleChatEnd(
+                        botConnection,
+                        chatId
+                    );
                 }
 
             } catch (error) {
-                console.error(errors.processError.replace('%s', error));
+                console.error('Erro ao finalizar chat:', error);
+                socket.emit('error', { 
+                    message: 'Erro ao finalizar chat: ' + error.message 
+                });
+            }
+        });
+    
+        socket.on('attendProblem', async (data) => {
+            try {
+                const { chatId, attendantName } = data;
+                
+                if (!chatId || !attendantName) {
+                    throw new Error('ChatId e nome do atendente são obrigatórios');
+                }
+
+                // Procurar ou criar o atendente
+                const [attendant] = await Attendant.findOrCreate({
+                    where: { 
+                        name: attendantName 
+                    },
+                    defaults: {
+                        name: attendantName
+                    }
+                });
+
+                const createCall = await CreateCall.findOne({
+                    where: { chatId },
+                    order: [['date', 'DESC']]
+                });
+
+                if (createCall) {
+                    const call = await Call.findOne({
+                        where: { createCallId: createCall.id }
+                    });
+
+                    if (call) {
+                        await call.update({
+                            attendantId: attendant.id
+                        });
+                    }
+                }
+
+                // Resto do código de manipulação do atendimento
+                if (problemManager) {
+                    await problemManager.handleProblemAttendance(
+                        botConnection, 
+                        { chatId }, 
+                        attendantName
+                    );
+                }
+
+            } catch (error) {
+                console.error('Erro ao atender problema:', error);
+                socket.emit('error', { message: 'Erro ao atender problema' });
             }
         });
     });
