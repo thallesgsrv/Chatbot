@@ -14,6 +14,7 @@ class ProblemManager {
         this.io = io;
         this.botConnection = botConnection;
         this.userCurrentTopic = {};
+        this.humanAttendedChats = new Set(); // Adicionar esta linha
     }
 
     setBotConnection(connection) {
@@ -211,18 +212,23 @@ class ProblemManager {
 
             if (topic.type === 'videoFeedback') {
                 // Quando vem do feedback negativo do vídeo
-                problemDescription = `${topic.problem} - ${topic.subProblem}\n` +
-                                  `Tutorial não resolveu o problema\n` +
-                                  `Detalhes adicionais: ${description}`;
+                problemDescription = `${description}`;
+                            
             } else {
                 // Se é opção 6
-                problemDescription = `Descrição detalhada do problema: ${description}`;
+                problemDescription = `${description}`;
             }
             
             await existingCall.update({
                 description: problemDescription,
                 status: 'PENDING'
             });
+            
+            // Sempre adiciona à lista de atendimento humano
+            this.humanAttendedChats.add(chatId);
+
+            // Sempre envia a mensagem de atendente analisando
+            await this.sendMessage(conn, chatId, dialogs.attendantAssigned);
 
             this.io.emit('userProblem', {
                 description: problemDescription,
@@ -232,8 +238,8 @@ class ProblemManager {
                 position: createCall.user?.type || '',
                 school: createCall.user?.school?.name || ''
             });
-
-            await this.sendMessage(conn, chatId, dialogs.problemRegistered);
+       
+            // Limpar tópico do usuário
             delete this.userCurrentTopic[chatId];
 
         } catch (error) {
@@ -320,6 +326,7 @@ class ProblemManager {
             
             await existingCall.update({
                 description: problemDescription
+                // NÃO altera status para PENDING aqui!
             });
 
             // Send video tutorial if available
@@ -335,16 +342,6 @@ class ProblemManager {
                 await this.sendMessage(conn, chatId, dialogs.problemRegistered);
                 delete this.userCurrentTopic[chatId];
             }
-
-            // Emit problem update
-            this.io.emit('userProblem', {
-                description: problemDescription,
-                chatId,
-                name: createCall.user?.name || '',
-                city: createCall.user?.school?.client || '',
-                position: createCall.user?.type || '',
-                school: createCall.user?.school?.name || ''
-            });
 
         } catch (error) {
             console.error('Erro em handleSubProblemSelection:', error);
@@ -374,6 +371,24 @@ class ProblemManager {
 
     clearUserTopic(chatId) {
         delete this.userCurrentTopic[chatId];
+    }
+
+    // Adicionar este método para verificar se deve processar mensagem
+    shouldProcessMessage(chatId) {
+        // Permite mensagens enquanto o usuário está descrevendo o problema
+        const topic = this.userCurrentTopic[chatId];
+        if (topic && topic.state === 'descricaoProblema') {
+            return true;
+        }
+        return !this.humanAttendedChats.has(chatId);
+    }
+    
+    // Modificar handleUserMessage para verificar antes de processar
+    async handleMessage(conn, chatId, messageText) {
+        if (!this.shouldProcessMessage(chatId)) {
+            return; 
+        }
+    
     }
 }
 

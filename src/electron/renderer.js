@@ -142,7 +142,7 @@ function displayProblem(description, chatId, userName) {
         // Atualizar descrição do problema existente
         const descriptionElement = existingProblem.querySelector('.problem-description');
         if (descriptionElement) {
-            descriptionElement.textContent = description;
+            descriptionElement.textContent = formatText(description);
         }
         return;
     }
@@ -154,12 +154,12 @@ function displayProblem(description, chatId, userName) {
     const content = `
         <div class="item-content">
             <div class="user-info">
-                <strong>${userName}</strong>
+                <strong>${formatText(userName)}</strong>
                 <span class="status-badge problem">Problema</span>
             </div>
             <div class="problem-description-container">
                 <i class="fas fa-exclamation-circle"></i>
-                <span class="problem-description">${description}</span>
+                <span class="problem-description">${formatText(description)}</span>
             </div>
             <div class="action-buttons">
                 <button class="btn btn-primary btn-sm attend-btn">
@@ -224,9 +224,40 @@ function updateSection(items, container, type, includePosition = false) {
 
 function capitalize(str) {
     if (!str) return '';
-    return str.split(' ')
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    // Remove conversão para maiúsculo total, apenas capitaliza a primeira letra de cada palavra
+    return str
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
         .join(' ');
+}
+
+function formatText(str) {
+    if (!str) return '';
+    
+    // Palavras que devem permanecer em maiúsculo
+    const upperCaseWords = ['EMEIF', 'EMEF', 'EE'];
+    
+    // Palavras que devem permanecer em minúsculo (exceto se forem a primeira palavra)
+    const lowerCaseWords = ['da', 'de', 'do', 'das', 'dos', 'e', 'em', 'na', 'no', 'nas', 'nos', 'para', 'por', 'com', 'a', 'o', 'as', 'os'];
+
+    return str.toLowerCase()
+        .split(' ')
+        .map((word, index) => {
+            // Verifica se a palavra deve ficar em maiúsculo
+            if (upperCaseWords.includes(word.toUpperCase())) {
+                return word.toUpperCase();
+            }
+            
+            // Se for uma preposição e não for a primeira palavra
+            if (lowerCaseWords.includes(word) && index !== 0) {
+                return word;
+            }
+            
+            // Capitaliza a primeira letra
+            return word.charAt(0).toUpperCase() + word.slice(1);
+        })
+        .join(' ')
+        .trim();
 }
 
 function createItemElement(item, type, includePosition) {
@@ -240,11 +271,11 @@ function createItemElement(item, type, includePosition) {
     element.classList.add('chat-item', `${type}-item`);
     
     const safeItem = {
-        name: item.name || '',
-        city: item.city || '',
-        position: item.position || '',
-        school: item.school || '',
-        description: item.description || '',
+        name: formatText(item.name || ''),
+        city: formatText(item.city || ''),
+        position: formatText(item.position || ''),
+        school: formatText(item.school || ''),
+        description: formatText(item.description || ''),
         chatId: item.chatId || '',
         queuePosition: item.queuePosition || ''
     };
@@ -260,7 +291,7 @@ function createItemElement(item, type, includePosition) {
             content = `
                 <div class="item-content ${type}-chat">
                     <div class="user-info">
-                        <strong>${capitalize(safeItem.name)}</strong>
+                        <strong>${safeItem.name}</strong>
                         ${badge}
                     </div>
                     <div class="details">
@@ -288,12 +319,11 @@ function createItemElement(item, type, includePosition) {
                 }
             }, 0);
             break;
-            
         case 'problem':
             content = `
                 <div class="item-content problem-chat">
                     <div class="problem-header">
-                        <strong class="user-name">${capitalize(safeItem.name)}</strong>
+                        <strong class="user-name">${safeItem.name}</strong>
                         <span class="status-badge problem">Problema</span>
                     </div>
                     <div class="problem-description-container">

@@ -406,7 +406,7 @@ async function getStatusUpdate() {
     try {
         const [active, waiting, pending, completed] = await Promise.all([
             Call.findAll({
-                where: { status: 'ACTIVE' },
+                where: { status: ['ACTIVE', 'PENDING'] }, 
                 order: [['id', 'DESC']],
                 include: [
                     {
@@ -484,7 +484,9 @@ async function getStatusUpdate() {
         return {
             activeChats: active.map(flattenCall),
             waitingList: waiting.map(flattenCall),
-            problems: pending.map(flattenCall),
+            problems: pending
+                .map(flattenCall)
+                .filter(call => call.status === 'PENDING'),
             completedChats: completed.map(flattenCall)
         };
     } catch (error) {

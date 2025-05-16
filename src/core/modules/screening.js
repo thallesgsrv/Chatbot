@@ -429,8 +429,8 @@ class Screening {
             }
         }
         
-        this.clearUserTopic(chatId); // Clear screening topic
-        this.problemManager.setUserTopic(chatId, 'problema'); // Set topic in problem manager
+        this.clearUserTopic(chatId); 
+        this.problemManager.setUserTopic(chatId, 'problema');
         await this.problemManager.sendProblemOptions(conn, chatId);
     }
 
