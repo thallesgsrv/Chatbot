@@ -10,6 +10,7 @@ const commands = require('../messages/commands.json');
 const greetings = require('../messages/greetings.json');
 
 const PROBLEM_MAPPINGS = require('../messages/problemMappings.json');
+const Card = require('../../models/entities/card.js');
 
 class ProblemManager {
     constructor(io, botConnection, screening, sharedState) {
@@ -506,7 +507,6 @@ class ProblemManager {
 
     async handleChatEnd(conn, chatId, cardData = null) {
         try {
-            // Find the most recent createCall for the chatId
             const createCall = await CreateCall.findOne({
                 where: { chatId },
                 order: [['date', 'DESC']]
@@ -516,41 +516,53 @@ class ProblemManager {
                 throw new Error('CreateCall não encontrado');
             }
 
-            // Find and update the call
             const call = await Call.findOne({
                 where: { createCallId: createCall.id }
             });
 
             if (call) {
+                let cardId = null;
+
+                if (cardData && cardData.cardLink) {
+                    try {
+                        const card = await Card.create({
+                            link: cardData.cardLink,
+                            callId: call.id,
+                            status: 'PENDING',
+                            createdAt: new Date()
+                        });
+                        cardId = card.id;
+                        await call.update({ cardId: card.id });
+                    } catch (cardError) {
+                        console.error('Error creating/linking card:', cardError);
+                    }
+                }
+
+                // Update call completion data
                 await call.update({
                     status: 'COMPLETED',
                     dateTimeFinish: new Date()
                 });
 
-                // Create card if cardData exists
-                if (cardData && cardData.cardLink) {
-                    await Card.create({
-                        link: cardData.cardLink,
-                        status: 'PENDING',
-                        callId: call.id
-                    });
-                }
-
-                // Remove chat from human attended list
+                // Clear states but don't remove from humanAttendedChats to allow re-screening
+                delete this.userCurrentTopic[chatId];
                 this.sharedState.removeChatFromHumanAttended(chatId);
 
-                // Emit events
-                this.io.emit('chatCompleted', { chatId });
-                this.io.emit('statusUpdate');
-
-                // Request feedback directly
                 if (conn) {
                     await this.sendMessage(conn, chatId, finished.feedbackRequest);
-                    this.userCurrentTopic[chatId] = { 
+                    this.userCurrentTopic[chatId] = {
                         state: 'awaitingRating',
                         callId: call.id
                     };
                 }
+
+                this.io.emit('chatCompleted', { 
+                    chatId,
+                    cardId,
+                    callId: call.id,
+                    cardLink: cardData?.cardLink
+                });
+                this.io.emit('statusUpdate');
             }
 
         } catch (error) {

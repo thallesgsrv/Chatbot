@@ -33,6 +33,14 @@ const Call = sequelize.define(
                 max: 5
             }
         },
+        cardId: {
+            type: DataTypes.BIGINT,
+            allowNull: true,
+            references: {
+                model: 'card',
+                key: 'id'
+            }
+        }
     },
     {
         freezeTableName: true,

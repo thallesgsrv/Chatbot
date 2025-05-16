@@ -34,6 +34,4 @@ const Card = sequelize.define(
     },
 );
 
-Card.belongsTo(Call, { foreignKey: 'callId' });
-
 module.exports = Card;

@@ -35,6 +35,15 @@ class Screening {
 
     async startScreening(conn, chatId) {
         try {
+            
+            this.clearUserTopic(chatId);
+            if (this.problemManager) {
+                this.problemManager.clearUserTopic(chatId);
+            }
+            
+          
+            this.sharedState.removeChatFromHumanAttended(chatId);
+
             const message = this.getRandomWelcomeMessage();
             await conn.client.sendMessage({
                 to: chatId,
@@ -432,6 +441,7 @@ class Screening {
         }
 
         const userId = Array.isArray(school.userId) ? school.userId[0] : school.userId;
+        
         
         const createCall = await CreateCall.create({
             idUser: userId,

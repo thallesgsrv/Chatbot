@@ -484,7 +484,6 @@ async function handleEndChat(chat) {
         const cardLinkInput = document.getElementById('cardLink');
         const confirmEndBtn = document.getElementById('confirmEndBtn');
 
-        // Reset modal fields
         cardCreatedSelect.value = 'no';
         cardLinkGroup.style.display = 'none';
         cardLinkInput.value = '';
@@ -506,7 +505,20 @@ async function handleEndChat(chat) {
             modal.hide();
 
             try {
-                // Remover o chat imediatamente de todas as listas
+                // Prepare card data only if yes was selected
+                const cardData = cardCreatedSelect.value === 'yes' ? {
+                    cardLink: cardLinkInput.value.trim()
+                } : null;
+
+                // Emit endChat event with card data
+                socket.emit('endChat', { 
+                    chatId: chat.chatId, 
+                    id: chat.id,
+                    cardData, 
+                    requestFeedback: true
+                });
+
+                // Remove chat from UI
                 ['active-chat-list', 'waiting-list-container', 'problem-list-container'].forEach(containerId => {
                     const container = document.getElementById(containerId);
                     if (container) {
@@ -515,20 +527,6 @@ async function handleEndChat(chat) {
                             chatItem.remove();
                         }
                     }
-                });
-
-                if (cardCreatedSelect.value === 'yes') {
-                    socket.emit('createCard', {
-                        chatId: chat.chatId,
-                        cardLink: cardLinkInput.value.trim()
-                    });
-                }
-
-                // Emitir apenas um evento endChat com requestFeedback
-                socket.emit('endChat', { 
-                    chatId: chat.chatId, 
-                    id: chat.id,
-                    requestFeedback: true
                 });
 
             } catch (error) {
