@@ -8,11 +8,29 @@ const sequelize = require('../../models/connections/connection');
 const { Op } = require('sequelize');
 
 class Screening {
-    constructor(io, getStatusUpdate, problemManager) {
+    constructor(io, getStatusUpdate, problemManager, sharedState) {
         this.userCurrentTopic = {};
-        this.io = io; // Salva a instância do socket.io
-        this.getStatusUpdate = getStatusUpdate; // Injected function
-        this.problemManager = problemManager; // Now injected
+        this.io = io; 
+        this.getStatusUpdate = getStatusUpdate; 
+        this.problemManager = problemManager; 
+        this.sharedState = sharedState;
+    }
+
+    isHumanAttended(chatId) {
+        return this.sharedState.isHumanAttended(chatId);
+    }
+
+    markChatAsHumanAttended(chatId, isForwarded = false) {
+        this.sharedState.markChatAsHumanAttended(chatId);
+        this.clearUserTopic(chatId);
+     
+        if (this.problemManager && !isForwarded) {
+            this.problemManager.markChatAsHumanAttended(chatId, true);
+        }
+    }
+
+    shouldProcessMessage(chatId) {
+        return !this.sharedState.isHumanAttended(chatId);
     }
 
     async startScreening(conn, chatId) {
@@ -31,6 +49,8 @@ class Screening {
     }
 
     async handleCpfInput(conn, chatId, messageText, io) {
+        if (!this.shouldProcessMessage(chatId)) return;
+
         const identifier = messageText.replace(/\D/g, '');
         console.log('Processing identifier:', identifier);
 
@@ -117,6 +137,8 @@ class Screening {
     }
 
     async handleUserRecordsSchools(conn, chatId, userRecords) {
+        if (!this.shouldProcessMessage(chatId)) return;
+
         try {
             const schoolPromises = userRecords.map(async (user) => {
                 const relations = await sequelize.models.userschool.findAll({
@@ -177,6 +199,8 @@ class Screening {
     }
 
     async checkSchools(conn, chatId, baseUser, schools, schoolUserMap) {
+        if (!this.shouldProcessMessage(chatId)) return;
+
         if (schools.length > 1) {
             let msg = greetings.chooseSchool;
             schools.forEach((school, idx) => {
@@ -213,6 +237,8 @@ class Screening {
     }
 
     async handleTypeSelection(conn, chatId, selection) {
+        if (!this.shouldProcessMessage(chatId)) return;
+
         const userTopic = this.userCurrentTopic[chatId];
     
         if (!userTopic || !userTopic.types || !userTopic.users) {
@@ -349,12 +375,16 @@ class Screening {
     }
     
     async handleCitySelection(conn, chatId, selection, cities, type) {
+        if (!this.shouldProcessMessage(chatId)) return;
+
         const selectedCity = cities[selection];
         const citySchools = Array.from(selectedCity.schools);
         await this.handleSchoolSelection(conn, chatId, citySchools, type, selectedCity.city);
     }
 
     async handleSchoolSelection(conn, chatId, schools, type, city) {
+        if (!this.shouldProcessMessage(chatId)) return;
+
         if (schools.length > 1) {
             let msg = greetings.chooseSchool;
             schools.forEach((school, idx) => {
@@ -380,6 +410,8 @@ class Screening {
     }
 
     async proceedWithSchoolSelection(conn, chatId, school) {
+        if (!this.shouldProcessMessage(chatId)) return;
+
         this.userCurrentTopic[chatId] = {
             state: 'cpfTriaged',
             userId: Array.isArray(school.userId) ? school.userId[0] : school.userId,

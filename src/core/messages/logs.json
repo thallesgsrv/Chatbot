@@ -15,5 +15,13 @@
     "noContacts": "Nenhum contato encontrado após tentar todos os métodos",
     "contactsFound": "Contatos encontrados: %d",
     "redirecting": "Redirecionando para: %s",
-    "invalidChat": "ID de chat inválido: %s"
+    "invalidChat": "ID de chat inválido: %s",
+    "problemFlow": {
+        "problemSelected": "Problema selecionado: %s",
+        "subProblemSelected": "Subproblema selecionado: %s para problema: %s",
+        "invalidSelection": "Seleção inválida detectada - input: %s, contexto: %s",
+        "topicChanged": "Tópico alterado para chatId %s: %s",
+        "videoSent": "Vídeo enviado para chatId %s: %s",
+        "feedbackReceived": "Feedback recebido para chatId %s: %s"
+    }
 }

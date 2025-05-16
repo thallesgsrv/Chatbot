@@ -67,7 +67,6 @@ let botConnection = null;
 const messageQueue = new Map();
 let isProcessingQueue = false;
 let userCurrentTopic = {};
-let humanAttendedChats = new Set();
 const messageHistory = new Map();
 
 // Add these two new declarations
@@ -90,6 +89,26 @@ const server = express();
 // Adicionar middleware JSON
 server.use(express.json());
 
+class SharedState {
+    constructor() {
+        this.humanAttendedChats = new Set();
+    }
+
+    markChatAsHumanAttended(chatId) {
+        this.humanAttendedChats.add(chatId);
+    }
+
+    isHumanAttended(chatId) {
+        return this.humanAttendedChats.has(chatId);
+    }
+
+    removeChatFromHumanAttended(chatId) {
+        this.humanAttendedChats.delete(chatId);
+    }
+}
+
+const sharedState = new SharedState();
+
 /**
  * Inicializa o servidor do bot e configura eventos principais
  * @param {Object} io - Instância do Socket.IO para comunicação em tempo real
@@ -105,10 +124,10 @@ async function startHydraBot(io) {
 
         console.log('Bot initialized successfully');
         
-        // First create problemManager
-        problemManager = new ProblemManager(io, botConnection);
-        // Then create screening with the problemManager instance
-        screening = new Screening(io, getStatusUpdate, problemManager); 
+        // Update initialization to use shared state
+        problemManager = new ProblemManager(io, botConnection, null, sharedState);
+        screening = new Screening(io, getStatusUpdate, problemManager, sharedState);
+        problemManager.setScreening(screening);
         
         bot.on('connection', async (conn) => {
             if (conn.connect) {
@@ -197,7 +216,7 @@ function setupSocketListeners(io) {
                 processedEvents.add(eventId);
                 setTimeout(() => processedEvents.delete(eventId), EVENT_TIMEOUT);
 
-                humanAttendedChats.delete(chatId);
+                sharedState.removeChatFromHumanAttended(chatId);
 
                 await Call.update(
                     { status: 'COMPLETED', dateTimeFinish: new Date() },
@@ -244,31 +263,46 @@ async function startListeningForMessages(conn, io) {
         setTimeout(() => processedMessageIds.delete(messageId), MESSAGE_EXPIRY);
 
         try {
-            // Ignorar mensagens enviadas pelo bot
+            // Ignore bot messages and group messages
             if (newMsg.result.fromMe || chatId.endsWith('@g.us')) {
+                return;
+            }
+
+            
+            if (sharedState.isHumanAttended(chatId)) {
                 return;
             }
 
             const messageText = newMsg.result.body.toLowerCase();
 
-            // Verificar se é recuperação de senha
+            
             const recoveryResponse = await handleRecovery(newMsg.result);
             if (recoveryResponse) {
                 await sendMessage(conn, chatId, recoveryResponse);
                 return;
             }
 
-            // Verificar se já está em processo de triagem
             const screeningTopic = screening.getUserTopic(chatId);
+            const problemTopic = problemManager.getUserTopic(chatId);
 
-            // Se não está em triagem e não tem tópico atual, iniciar triagem
-            if (!screeningTopic && !userCurrentTopic[chatId] && !problemManager.getUserTopic(chatId)) {
+    
+            if (problemTopic) {
+                if (problemTopic.state === 'descricaoProblema' || 
+                    problemTopic.state === 'awaitingFeedback' || 
+                    problemTopic.state === 'awaitingRating') {
+                    await problemManager.handleMessage(conn, chatId, messageText);
+                    return;
+                }
+            }
+
+            
+            if (!screeningTopic && !problemTopic) {
                 await screening.startScreening(conn, chatId);
                 return;
             }
 
-            // Se está em triagem, processar conforme o estado
-            if (screeningTopic && typeof screeningTopic === 'object') {
+            // Handle existing screening flow
+            if (screeningTopic) {
                 switch (screeningTopic.state) {
                     case 'awaitingCpf':
                         await screening.handleCpfInput(conn, chatId, messageText, io);
@@ -554,7 +588,13 @@ async function getWaitingPosition(chatId) {
 async function handleUserMessage(conn, chatId, messageText, io) {
     try {
         if (chatId.endsWith('@g.us')) return;
-        if (humanAttendedChats.has(chatId)) return;
+        
+        
+        if (sharedState.isHumanAttended(chatId) || 
+            problemManager.isHumanAttended(chatId) || 
+            screening.isHumanAttended(chatId)) {
+            return;
+        }
 
         const screeningTopic = screening.getUserTopic(chatId);
         

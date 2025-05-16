@@ -6,15 +6,17 @@ const dialogs = require('../messages/dialogs.json');
 const errors = require('../messages/errors.json');
 const finished = require('../messages/finished.json');
 const commands = require('../messages/commands.json');
+const greetings = require('../messages/greetings.json');
 
 const PROBLEM_MAPPINGS = require('../messages/problemMappings.json');
 
 class ProblemManager {
-    constructor(io, botConnection) {
+    constructor(io, botConnection, screening, sharedState) {
         this.io = io;
         this.botConnection = botConnection;
+        this.screening = screening; 
         this.userCurrentTopic = {};
-        this.humanAttendedChats = new Set(); // Adicionar esta linha
+        this.sharedState = sharedState;
     }
 
     setBotConnection(connection) {
@@ -25,17 +27,19 @@ class ProblemManager {
         await this.sendMessage(conn, chatId, dialogs.problemOptions);
     }
 
+    
+    async delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
     async handleProblemSelection(conn, chatId, messageText) {
         const normalizedText = String(messageText).trim();
-        
-        // Log para debug
-        console.log('Received problem selection:', normalizedText);
-        console.log('Available mappings:', commands.problemMapping);
 
         // Primeiro, verifica se é um número válido de opção
         if (["1", "2", "3", "4", "5", "6"].includes(normalizedText)) {
             if (normalizedText === "5") {
                 await this.sendMessage(conn, chatId, dialogs.rfaceContact);
+                await this.delay(4000);
                 delete this.userCurrentTopic[chatId];
                 this.io.emit('endChat', { chatId });
                 return;
@@ -43,6 +47,7 @@ class ProblemManager {
             
             if (normalizedText === "6") {
                 await this.sendMessage(conn, chatId, dialogs.describeIssue);
+                await this.delay(4000);
                 this.userCurrentTopic[chatId] = { 
                     state: 'descricaoProblema',
                     type: 'custom'
@@ -223,13 +228,12 @@ class ProblemManager {
                 description: problemDescription,
                 status: 'PENDING'
             });
+
+            // Mark as human attended before sending message
+            this.markChatAsHumanAttended(chatId);
             
-            // Sempre adiciona à lista de atendimento humano
-            this.humanAttendedChats.add(chatId);
-
-            // Sempre envia a mensagem de atendente analisando
-            await this.sendMessage(conn, chatId, dialogs.attendantAssigned);
-
+            await this.sendMessage(conn, chatId, greetings.attendantAssigned);
+            
             this.io.emit('userProblem', {
                 description: problemDescription,
                 chatId,
@@ -238,10 +242,11 @@ class ProblemManager {
                 position: createCall.user?.type || '',
                 school: createCall.user?.school?.name || ''
             });
-       
-            // Limpar tópico do usuário
-            delete this.userCurrentTopic[chatId];
 
+            if (this.screening) {
+                this.screening.clearUserTopic(chatId);
+            }
+            
         } catch (error) {
             console.error('Erro em handleCustomProblem:', error);
             await this.sendMessage(conn, chatId, errors.tryAgainLater);
@@ -351,6 +356,7 @@ class ProblemManager {
 
     async sendMessage(conn, chatId, message) {
         try {
+            await this.delay(2000); // Delay before sending message
             await conn.client.sendMessage({
                 to: chatId,
                 body: message,
@@ -373,14 +379,28 @@ class ProblemManager {
         delete this.userCurrentTopic[chatId];
     }
 
-    // Adicionar este método para verificar se deve processar mensagem
+    // Replace existing isHumanAttended method
+    isHumanAttended(chatId) {
+        return this.sharedState.isHumanAttended(chatId);
+    }
+
+    // Replace existing markChatAsHumanAttended method
+    markChatAsHumanAttended(chatId, isForwarded = false) {
+        this.sharedState.markChatAsHumanAttended(chatId);
+        delete this.userCurrentTopic[chatId];
+        
+        if (this.screening && !isForwarded) {
+            this.screening.markChatAsHumanAttended(chatId, true);
+        }
+    }
+
+    // Replace shouldProcessMessage method
     shouldProcessMessage(chatId) {
-        // Permite mensagens enquanto o usuário está descrevendo o problema
         const topic = this.userCurrentTopic[chatId];
         if (topic && topic.state === 'descricaoProblema') {
             return true;
         }
-        return !this.humanAttendedChats.has(chatId);
+        return !this.sharedState.isHumanAttended(chatId);
     }
     
     // Modificar handleUserMessage para verificar antes de processar
@@ -388,9 +408,40 @@ class ProblemManager {
         if (!this.shouldProcessMessage(chatId)) {
             return; 
         }
-    
+
+        const topic = this.userCurrentTopic[chatId];
+        
+        // Verifica se o usuário está no estado de descrição do problema
+        if (topic && topic.state === 'descricaoProblema') {
+            await this.handleCustomProblem(conn, chatId, messageText);
+            return;
+        }
+
+        // Verifica outros estados
+        if (topic && topic.state === 'awaitingFeedback') {
+            await this.handleVideoFeedback(conn, chatId, messageText);
+            return;
+        }
+
+        if (topic && topic.state === 'awaitingRating') {
+            await this.handleRating(conn, chatId, messageText);
+            return;
+        }
+
+        // Roteamento padrão baseado no estágio do tópico
+        if (!topic || topic === 'problema') {
+            await this.handleProblemSelection(conn, chatId, messageText);
+        } else if (topic.stage === 'subproblema') {
+            await this.handleSubProblemSelection(conn, chatId, messageText);
+        }
+    }
+
+    setScreening(screening) {
+        this.screening = screening;
     }
 }
+
+
 
 module.exports = ProblemManager;
 
