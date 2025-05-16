@@ -105,8 +105,10 @@ async function startHydraBot(io) {
 
         console.log('Bot initialized successfully');
         
-        screening = new Screening(io, getStatusUpdate, sendProblemOptions); 
+        // First create problemManager
         problemManager = new ProblemManager(io, botConnection);
+        // Then create screening with the problemManager instance
+        screening = new Screening(io, getStatusUpdate, problemManager); 
         
         bot.on('connection', async (conn) => {
             if (conn.connect) {
@@ -258,15 +260,15 @@ async function startListeningForMessages(conn, io) {
 
             // Verificar se já está em processo de triagem
             const screeningTopic = screening.getUserTopic(chatId);
-            
+
             // Se não está em triagem e não tem tópico atual, iniciar triagem
-            if (!screeningTopic && !userCurrentTopic[chatId]) {
+            if (!screeningTopic && !userCurrentTopic[chatId] && !problemManager.getUserTopic(chatId)) {
                 await screening.startScreening(conn, chatId);
                 return;
             }
 
             // Se está em triagem, processar conforme o estado
-            if (screeningTopic) {
+            if (screeningTopic && typeof screeningTopic === 'object') {
                 switch (screeningTopic.state) {
                     case 'awaitingCpf':
                         await screening.handleCpfInput(conn, chatId, messageText, io);
@@ -277,7 +279,7 @@ async function startListeningForMessages(conn, io) {
                             await sendMessage(conn, chatId, errors.invalidOption);
                             return;
                         }
-                        await screening.handleTypeSelection(conn, chatId, typeIndex, screeningTopic.types, screeningTopic.schoolsByTypeCity);
+                        await screening.handleTypeSelection(conn, chatId, typeIndex);
                         return;
                     case 'awaitingCitySelection':
                         const cityIndex = parseInt(messageText) - 1;
@@ -296,9 +298,46 @@ async function startListeningForMessages(conn, io) {
                         await screening.proceedWithSchoolSelection(conn, chatId, screeningTopic.schools[schoolIndex]);
                         return;
                     case 'cpfTriaged':
+                        // Salva o estado atual antes de limpar
+                        const currentUserData = screeningTopic;
+                        // Limpa o tópico de triagem
                         screening.clearUserTopic(chatId);
-                        return; 
+                        // Define o tópico do problemManager e envia opções imediatamente
+                        problemManager.setUserTopic(chatId, 'problema');
+                        await problemManager.sendProblemOptions(conn, chatId);
+                        return;
                 }
+            }
+
+            // Se o usuário está no fluxo de problemas, delegar ao problemManager
+            const pmTopic = problemManager.getUserTopic(chatId);
+            if (pmTopic) {
+                if (pmTopic === 'problema' && messageText) {
+                    await problemManager.handleProblemSelection(conn, chatId, messageText);
+                    return;
+                }
+                if (pmTopic.stage === 'subproblema') {
+                    await problemManager.handleSubProblemSelection(conn, chatId, messageText);
+                    return;
+                }
+                if (pmTopic.state === 'descricaoProblema') {
+                    await problemManager.handleCustomProblem(conn, chatId, newMsg.result.body);
+                    return;
+                }
+                if (pmTopic.state === 'awaitingFeedback') {
+                    await problemManager.handleVideoFeedback(conn, chatId, messageText);
+                    return;
+                }
+                if (pmTopic.state === 'awaitingRating') {
+                    await problemManager.handleRating(conn, chatId, messageText);
+                    return;
+                }
+            }
+
+            // Se não está em triagem nem em problema, iniciar triagem
+            if (!screeningTopic && !pmTopic) {
+                await screening.startScreening(conn, chatId);
+                return;
             }
 
             // Continuar com o fluxo normal para outras mensagens
@@ -515,15 +554,6 @@ async function handleUserMessage(conn, chatId, messageText, io) {
         if (chatId.endsWith('@g.us')) return;
         if (humanAttendedChats.has(chatId)) return;
 
-        const chatState = await Call.findOne({
-            include: [{
-                model: CreateCall,
-                as: 'createcall',
-                where: { chatId }
-            }],
-            order: [[{ model: CreateCall, as: 'createcall' }, 'date', 'DESC']]
-        });
-
         const screeningTopic = screening.getUserTopic(chatId);
         
         if (!screeningTopic) {
@@ -537,21 +567,15 @@ async function handleUserMessage(conn, chatId, messageText, io) {
         }
 
         const currentTopic = problemManager.getUserTopic(chatId);
-        
-        if (currentTopic === 'problema') {
-            await problemManager.handleProblemSelection(conn, chatId, messageText);
-        } else if (currentTopic?.stage === 'subproblema') {
-            await problemManager.handleSubProblemSelection(conn, chatId, messageText);
-        }
+        const messageTextLower = messageText.toLowerCase();
 
-        if (chatState) {
-            await updateDatabaseAndNotify(
-                'UPDATE "call" SET status = ? WHERE id = ?',
-                ['ACTIVE', chatState.id],
-                io
-            );
+        if (currentTopic === 'problema') {
+            await problemManager.handleProblemSelection(conn, chatId, messageTextLower);
+        } else if (currentTopic?.stage === 'subproblema') {
+            await problemManager.handleSubProblemSelection(conn, chatId, messageTextLower);
+        } else if (currentTopic?.state === 'descricaoProblema') {
+            await problemManager.handleCustomProblem(conn, chatId, messageText);
         }
-        
     } catch (error) {
         console.error('Erro ao processar mensagem:', error);
         await sendMessage(conn, chatId, errors.tryAgainLater);
@@ -690,7 +714,6 @@ async function saveClientInfoToDatabase(userInfo, chatId, status, io) {
             where: { name: userInfo.school },
             defaults: {
                 name: userInfo.school,
-                // Add other required school fields with default values
                 inep: '',
                 client: '',
                 neighborhood: '',

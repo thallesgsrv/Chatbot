@@ -8,12 +8,11 @@ const sequelize = require('../../models/connections/connection');
 const { Op } = require('sequelize');
 
 class Screening {
-    constructor(io, getStatusUpdate, sendProblemOptions) {
+    constructor(io, getStatusUpdate, problemManager) {
         this.userCurrentTopic = {};
         this.io = io; // Salva a instância do socket.io
         this.getStatusUpdate = getStatusUpdate; // Injected function
-        this.sendProblemOptions = sendProblemOptions; // Nova função injetada
-        this.problemManager = null; // Será inicializado quando necessário
+        this.problemManager = problemManager; // Now injected
     }
 
     async startScreening(conn, chatId) {
@@ -429,11 +428,10 @@ class Screening {
                 this.io.emit('forceUpdate');
             }
         }
-
-        if (this.sendProblemOptions) {
-            await this.sendProblemOptions(conn, chatId);
-        }
-        this.userCurrentTopic[chatId] = 'problema';
+        
+        this.clearUserTopic(chatId); // Clear screening topic
+        this.problemManager.setUserTopic(chatId, 'problema'); // Set topic in problem manager
+        await this.problemManager.sendProblemOptions(conn, chatId);
     }
 
     getRandomWelcomeMessage() {
