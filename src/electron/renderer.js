@@ -69,7 +69,7 @@ socket.on('newProblemReported', (problemData) => {
 // Adicionar novo listener para feedback após conexão socket
 socket.on('feedbackReceived', (data) => {
     if (data && data.chatId) {
-        // Remover o chat de todas as listas possíveis
+        // Remove chat from all lists immediately
         ['active-chat-list', 'waiting-list-container', 'problem-list-container'].forEach(containerId => {
             const container = document.getElementById(containerId);
             if (container) {
@@ -79,13 +79,16 @@ socket.on('feedbackReceived', (data) => {
                 }
             }
         });
+
+        // Force UI refresh
+        fetchDataAndUpdateUI();
     }
 });
 
-// Adicionar novo listener para chats completados
+// Update chatCompleted event listener
 socket.on('chatCompleted', (data) => {
     if (data && data.chatId) {
-        // Remove o chat de todas as listas imediatamente
+        // Remove chat from all lists immediately
         ['active-chat-list', 'waiting-list-container', 'problem-list-container'].forEach(containerId => {
             const container = document.getElementById(containerId);
             if (container) {
@@ -95,9 +98,11 @@ socket.on('chatCompleted', (data) => {
                 }
             }
         });
-        
-        // Atualiza a UI
-        fetchDataAndUpdateUI();
+
+        // Force UI refresh after a short delay
+        setTimeout(() => {
+            fetchDataAndUpdateUI();
+        }, 500);
     }
 });
 
@@ -505,20 +510,11 @@ async function handleEndChat(chat) {
             modal.hide();
 
             try {
-                // Prepare card data only if yes was selected
                 const cardData = cardCreatedSelect.value === 'yes' ? {
                     cardLink: cardLinkInput.value.trim()
                 } : null;
 
-                // Emit endChat event with card data
-                socket.emit('endChat', { 
-                    chatId: chat.chatId, 
-                    id: chat.id,
-                    cardData, 
-                    requestFeedback: true
-                });
-
-                // Remove chat from UI
+                // Remove chat from UI immediately
                 ['active-chat-list', 'waiting-list-container', 'problem-list-container'].forEach(containerId => {
                     const container = document.getElementById(containerId);
                     if (container) {
@@ -527,6 +523,17 @@ async function handleEndChat(chat) {
                             chatItem.remove();
                         }
                     }
+                });
+
+                // Force UI update immediately
+                fetchDataAndUpdateUI();
+
+                // Emit endChat event with card data
+                socket.emit('endChat', { 
+                    chatId: chat.chatId, 
+                    id: chat.id,
+                    cardData, 
+                    requestFeedback: true
                 });
 
             } catch (error) {
@@ -564,177 +571,7 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchDataAndUpdateUI();
 });
 
-// Estilos dinâmicos
-const style = document.createElement('style');
-style.textContent = `
-    .chat-item {
-        padding: 15px;
-        margin: 10px 0;
-        border-radius: 10px;
-        background-color: #ffffff;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        transition: all 0.3s ease;
-        color: #333333;
-    }
-
-    .dark-theme .chat-item {
-        background-color: #2b2b2b;
-        color: #e4e6ef;
-        border-color: #363636;
-    }
-
-    .chat-item:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-    }
-
-    .dark-theme .chat-item:hover {
-        background-color: #363636;
-    }
-
-    .problem-chat {
-        border-left: 4px solid #dc3545;
-    }
-
-    .problem-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 10px;
-    }
-
-    .user-name {
-        font-size: 1.1em;
-        color: #212529;
-    }
-
-    .problem-description-container {
-        background-color: #f8f9fa;
-        padding: 12px;
-        border-radius: 8px;
-        margin: 5px 0;
-        display: flex;
-        align-items: flex-start;
-        gap: 10px;
-    }
-
-    .problem-description-container i {
-        color: #dc3545;
-        font-size: 1.1em;
-        margin-top: 2px;
-    }
-
-    .problem-description {
-        color: #495057;
-        font-size: 0.95em;
-        line-height: 1.4;
-        flex: 1;
-    }
-
-    .status-badge.problem {
-        background-color: #dc3545;
-        color: white;
-        padding: 4px 12px;
-        border-radius: 15px;
-        font-size: 0.8rem;
-        font-weight: 600;
-    }
-
-    .problem-item:hover {
-        background-color: #363636;
-        cursor: pointer;
-    }
-`;
-
-// Update problem-item hover style
-style.textContent += `
-    .problem-item:hover {
-        background-color: #363636;
-        cursor: pointer;
-    }
-`;
-
-const additionalStyles = `
-    .action-buttons {
-        margin-top: 10px;
-        display: flex;
-        justify-content: flex-end;
-    }
-
-    .attend-btn {
-        background-color: #28a745;
-        border: none;
-        color: white;
-        padding: 5px 15px;
-        border-radius: 15px;
-        font-size: 0.9em;
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        transition: all 0.3s ease;
-    }
-
-    .attend-btn:hover {
-        background-color: #218838;
-        transform: translateY(-1px);
-    }
-
-    .attend-btn i {
-        font-size: 0.9em;
-    }
-    
-    .end-chat-btn {
-        background-color: #dc3545;
-        border: none;
-        color: white;
-        padding: 5px 15px;
-        border-radius: 15px;
-        font-size: 0.9em;
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        transition: all 0.3s ease;
-        margin-top: 10px;
-    }
-
-    .end-chat-btn:hover {
-        background-color: #c82333;
-        transform: translateY(-1px);
-    }
-
-    .end-chat-btn i {
-        font-size: 0.9em;
-    }
-`;
-
-style.textContent += additionalStyles;
-
-//Badge de posição na fila
-const queueStyles = document.createElement('style');
-queueStyles.textContent = `
-    .queue-badge {
-        background-color: #ffc107;
-        color: #000;
-        padding: 4px 12px;
-        border-radius: 15px;
-        font-size: 0.85rem;
-        font-weight: 600;
-        margin-left: 10px;
-    }
-
-    .waiting-chat {
-        border-left: 4px solid #ffc107;
-    }
-
-    .waiting-chat .user-info {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 8px;
-    }
-`;
-document.head.appendChild(queueStyles);
-
+// Modal HTML
 const modalHTML = `
 <div id="attendantModal" class="modal fade custom-modal" tabindex="-1" style="display: none;">
     <div class="modal-dialog modal-dialog-centered">
@@ -790,146 +627,6 @@ socket.on('attendantList', (attendants) => {
 });
 
 document.body.insertAdjacentHTML('beforeend', modalHTML);
-
-const modalStyles = `
-    .custom-modal .modal-content {
-        border: none;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        background-color: #ffffff;
-        color: #212529;
-    }
-
-    .custom-modal .modal-header {
-        background-color: #f8f9fa;
-        border-bottom: 1px solid #dee2e6;
-        padding: 1rem;
-    }
-
-    .custom-modal .form-control {
-        background-color: #ffffff;
-        border-color: #ced4da;
-        color: #212529;
-    }
-
-    .dark-theme .custom-modal .modal-content {
-        background-color: #2b3035;
-        color: #e9ecef;
-        border: 1px solid #495057;
-    }
-
-    .dark-theme .custom-modal .modal-header {
-        background-color: #343a40;
-        border-color: #495057;
-    }
-
-    .dark-theme .custom-modal .modal-footer {
-        background-color: #343a40;
-        border-color: #495057;
-    }
-
-    .dark-theme .custom-modal .modal-body {
-        background-color: #2b3035;
-    }
-
-    .dark-theme .custom-modal .form-control {
-        background-color: #212529;
-        border-color: #495057;
-        color: #ffffff;
-    }
-
-    .dark-theme .custom-modal .form-control::placeholder {
-        color: #6c757d;
-    }
-
-    .dark-theme .custom-modal .btn-close {
-        filter: invert(1) grayscale(100%) brightness(200%);
-    }
-
-    .dark-theme .custom-modal label {
-        color: #e9ecef;
-    }
-
-    .dark-theme .custom-modal .form-control::placeholder {
-        color: #6c757d;
-    }
-
-    .dark-theme .custom-modal .btn-outline-secondary {
-        color: #e9ecef;
-        border-color: #6c757d;
-    }
-
-    .dark-theme .custom-modal .btn-outline-secondary:hover {
-        background-color: #6c757d;
-        color: #fff;
-    }
-
-    .custom-modal .modal-title {
-        font-size: 1.1rem;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .custom-modal .modal-title i {
-        color: #28a745;
-    }
-
-    .custom-modal .modal-body {
-        padding: 1.5rem;
-    }
-
-    .custom-modal .form-group label {
-        font-weight: 500;
-        margin-bottom: 0.5rem;
-        font-size: 0.9rem;
-    }
-
-    .custom-modal .form-control {
-        padding: 0.5rem 0.75rem;
-        font-size: 0.95rem;
-        border-radius: 6px;
-        transition: all 0.2s ease;
-    }
-
-    .custom-modal .form-control:focus {
-        border-color: #28a745;
-        box-shadow: 0 0 0 0.2rem rgba(40, 167, 69, 0.25);
-    }
-
-    .custom-modal .modal-footer {
-        padding: 1rem;
-        gap: 8px;
-    }
-
-    .custom-modal .btn {
-        padding: 0.5rem 1rem;
-        font-size: 0.9rem;
-        font-weight: 500;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-    }
-
-    .custom-modal .btn-success {
-        background-color: #28a745;
-        border-color: #28a745;
-        color: #fff;
-    }
-
-    .custom-modal .btn-success:hover {
-        background-color: #218838;
-        border-color: #1e7e34;
-    }
-
-    .custom-modal .modal-content,
-    .custom-modal .form-control,
-    .custom-modal .btn {
-        transition: all 0.2s ease-in-out;
-    }
-`;
-
-style.textContent += modalStyles;
 
 document.body.insertAdjacentHTML('beforeend', `
 <div id="endChatModal" class="modal fade custom-modal" tabindex="-1" style="display: none;">

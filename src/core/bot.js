@@ -114,6 +114,7 @@ const sharedState = new SharedState();
  */
 async function startHydraBot(io) {
     try {
+        BOT_START_TIME = Date.now(); 
         bot = await hydraBot.initServer({
             puppeteerOptions: {
                 headless: CONFIG.DEFAULT_HEADLESS,
@@ -324,6 +325,23 @@ async function startListeningForMessages(conn, io) {
     conn.client.ev.on('newMessage', async (newMsg) => {
         const chatId = newMsg.result.chatId;
         const messageId = newMsg.result.id || `${chatId}_${Date.now()}`;
+        
+        // Fix timestamp handling - WhatsApp timestamps are in seconds since epoch
+        let messageTimestamp = normalizeTimestamp(newMsg.result);
+
+        // Ignore messages from before bot startup
+        if (messageTimestamp < BOT_START_TIME) {
+            if (process.env.NODE_ENV === 'development') {
+                console.log('Debug timestamp:', {
+                    originalMessage: newMsg.result,
+                    normalizedTimestamp: messageTimestamp,
+                    messageDate: new Date(messageTimestamp).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+                    botStart: new Date(BOT_START_TIME).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+                    timeDiff: Math.round((BOT_START_TIME - messageTimestamp) / 1000) + ' segundos'
+                });
+            }
+            return;
+        }
 
         // Verificar se a mensagem já foi processada
         if (processedMessageIds.has(messageId)) {
@@ -721,7 +739,10 @@ async function sendProblemOptions(conn, chatId) {
 // Processa fechamento do chat
 async function handleChatClosed(chatId, io) {
     try {
-        // Marcar chat como concluído
+        // First emit chatCompleted event immediately
+        io.emit('chatCompleted', { chatId });
+        
+        // Mark chat as completed
         await Call.update(
             { status: 'COMPLETED', dateTimeFinish: new Date() },
             {
@@ -734,20 +755,20 @@ async function handleChatClosed(chatId, io) {
             }
         );
 
-        // Obter próximo usuário na lista de espera
+        // Remove from active chats immediately
+        if (sharedState.isHumanAttended(chatId)) {
+            sharedState.removeChatFromHumanAttended(chatId);
+        }
+
+        // Get next user in waiting list
         const nextUser = await getNextInWaitingList();
         
-        // Verificar se existe próximo usuário
         if (nextUser) {
-            // Atualizar status do próximo usuário
             await Call.update(
                 { status: 'ACTIVE' },
-                {
-                    where: { id: nextUser.id }
-                }
+                { where: { id: nextUser.id } }
             );
 
-            // Enviar mensagem para o próximo usuário
             await sendMessage(
                 botConnection,
                 nextUser.createcall.chatId,
@@ -756,14 +777,15 @@ async function handleChatClosed(chatId, io) {
             await sendProblemOptions(botConnection, nextUser.createcall.chatId);
         }
 
-        // Atualizar posições de todos os usuários em espera
+        // Update waiting users and send status update
         await updateWaitingUsers(io);
-        
-        // Buscar e transmitir status atualizado para todos os clientes
         await sendStatusUpdateToMainProcess(io);
 
+        // Force an immediate UI refresh
+        io.emit('forceUpdate');
+
     } catch (error) {
-        console.error(errors.processError.replace('%s', error));
+        console.error('Erro ao finalizar chat:', error);
     }
 }
 
@@ -924,21 +946,49 @@ function getStatusText(status) {
 
 function redirectToWhatsAppChat(chatId) {
     try {
-        // Remove '@c.us' se presente e remove quaisquer caracteres não numéricos
+        // Removes '@c.us' if present and removes any non-numeric characters
         const cleanNumber = chatId.replace('@c.us', '').replace(/\D/g, '');
         
-        // Verifica se o número está vazio após a limpeza
+        // Checks if the number is empty after cleaning
         if (!cleanNumber) {
-            console.error('ID de chat inválido:', chatId);
+            console.error('Invalid chat ID:', chatId);
             return;
         }
 
         const whatsappUrl = `https://wa.me/${cleanNumber}`;
-        console.log('Redirecionando para:', whatsappUrl);
+        console.log('Redirecting to:', whatsappUrl);
         require('electron').shell.openExternal(whatsappUrl);
     } catch (error) {
-        console.error('Erro ao redirecionar para WhatsApp:', error);
+        console.error('Error redirecting to WhatsApp:', error);
     }
+}
+
+/**
+ * Normalizes different WhatsApp timestamp formats into milliseconds
+ * @param {Object} msg - The WhatsApp message object
+ * @returns {number} Timestamp in milliseconds
+ */
+function normalizeTimestamp(msg) {
+    if (!msg) return Date.now();
+
+    // Case 1: Unix epoch in seconds (e.g. 1234567890)
+    if (msg.messageTimestamp && typeof msg.messageTimestamp === 'number') {
+        return msg.messageTimestamp * 1000;
+    }
+
+    // Case 2: Unix epoch in milliseconds (e.g. 1234567890123)
+    if (msg.messageTimestamp && msg.messageTimestamp > 1e11) {
+        return msg.messageTimestamp;
+    }
+
+    // Case 3: String date (e.g. "2023-01-01T00:00:00.000Z")
+    if (msg.timestamp && typeof msg.timestamp === 'string') {
+        const parsed = Date.parse(msg.timestamp);
+        if (!isNaN(parsed)) return parsed;
+    }
+
+    // Fallback to current time if no valid timestamp found
+    return Date.now();
 }
 
 module.exports = {

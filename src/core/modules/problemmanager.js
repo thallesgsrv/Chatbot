@@ -41,9 +41,8 @@ class ProblemManager {
         if (["1", "2", "3", "4", "5", "6"].includes(normalizedText)) {
             if (normalizedText === "5") {
                 await this.sendMessage(conn, chatId, dialogs.rfaceContact);
-                await this.delay(4000);
+                await this.handleChatEnd(conn, chatId, null, true);
                 delete this.userCurrentTopic[chatId];
-                this.io.emit('endChat', { chatId });
                 return;
             }
             
@@ -173,12 +172,14 @@ class ProblemManager {
                 await this.sendMessage(conn, chatId, finished.feedbackThank);
                 await this.sendMessage(conn, chatId, finished.chatCompleted);
                 
-                // Emit end chat event
-                this.io.emit('endChat', { chatId });
+                // Emit both events to ensure UI update
+                this.io.emit('chatCompleted', { chatId });
+                this.io.emit('feedbackReceived', { chatId });
                 this.io.emit('statusUpdate');
                 
-                // Clear user topic
+                // Clear user topic and remove from human attended
                 delete this.userCurrentTopic[chatId];
+                this.sharedState.removeChatFromHumanAttended(chatId);
             }
 
         } catch (error) {
@@ -505,7 +506,7 @@ class ProblemManager {
         }
     }
 
-    async handleChatEnd(conn, chatId, cardData = null) {
+    async handleChatEnd(conn, chatId, cardData = null, skipFeedback = false) {
         try {
             const createCall = await CreateCall.findOne({
                 where: { chatId },
@@ -528,7 +529,7 @@ class ProblemManager {
                         const card = await Card.create({
                             link: cardData.cardLink,
                             callId: call.id,
-                            status: 'PENDING',
+                            status: 'COMPLETED', // Changed from 'PENDING' to 'COMPLETED'
                             createdAt: new Date()
                         });
                         cardId = card.id;
@@ -538,17 +539,28 @@ class ProblemManager {
                     }
                 }
 
-                // Update call completion data
                 await call.update({
                     status: 'COMPLETED',
                     dateTimeFinish: new Date()
                 });
 
-                // Clear states but don't remove from humanAttendedChats to allow re-screening
                 delete this.userCurrentTopic[chatId];
                 this.sharedState.removeChatFromHumanAttended(chatId);
 
+                // Send thank you message before emitting events
                 if (conn) {
+                    await this.sendMessage(conn, chatId, finished.helpfulMessage);
+                }
+
+                // Emit chatCompleted event immediately
+                this.io.emit('chatCompleted', { 
+                    chatId,
+                    cardId,
+                    callId: call.id,
+                    cardLink: cardData?.cardLink
+                });
+
+                if (conn && !skipFeedback) { // Added skipFeedback check
                     await this.sendMessage(conn, chatId, finished.feedbackRequest);
                     this.userCurrentTopic[chatId] = {
                         state: 'awaitingRating',
@@ -556,12 +568,6 @@ class ProblemManager {
                     };
                 }
 
-                this.io.emit('chatCompleted', { 
-                    chatId,
-                    cardId,
-                    callId: call.id,
-                    cardLink: cardData?.cardLink
-                });
                 this.io.emit('statusUpdate');
             }
 
