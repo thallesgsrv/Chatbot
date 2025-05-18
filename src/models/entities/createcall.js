@@ -30,7 +30,6 @@ const CreateCall = sequelize.define(
         chatId: {
             type: DataTypes.STRING,
             allowNull: false,
-            unique: true
         },
         date: {
             type: DataTypes.DATE,
