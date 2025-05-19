@@ -24,7 +24,6 @@ const Call = sequelize.define(
             type: DataTypes.ENUM('PENDING', 'ACTIVE', 'WAITING', 'COMPLETED'),
             allowNull: false,
         },
-
         dateTimeFinish: {
             type: DataTypes.DATE,
         },
@@ -35,31 +34,22 @@ const Call = sequelize.define(
                 max: 5
             }
         },
-        cardId: {
-            type: DataTypes.BIGINT,
-            allowNull: true,
-            references: {
-                model: 'card',
-                key: 'id'
-            }
-        },
         attendantId: {
             type: DataTypes.BIGINT,
-            allowNull: true,
-            references: {
-                model: 'attendant',
-                key: 'id'
-            }
+            allowNull: true
+        },
+        createCallId: {
+            type: DataTypes.BIGINT,
+            allowNull: false
         }
     },
     {
         freezeTableName: true,
         timestamps: false,
-    },
+    }
 );
-
-Call.belongsTo(CreateCall, { foreignKey: 'createCallId', as: 'createcall' });
-Call.belongsTo(Attendant, { foreignKey: 'attendantId', as: 'attendant' });
-Call.hasOne(Card, { foreignKey: 'callId', as: 'card' });
-
+    Call.belongsTo(CreateCall, { foreignKey: 'createCallId', as: 'createcall' });
+    Call.belongsTo(Attendant, { foreignKey: 'attendantId', as: 'attendant' });
+    Call.hasOne(Card, { foreignKey: 'callId', as: 'card' });
+    Card.belongsTo(Call, { through: 'call' });
 module.exports = Call;

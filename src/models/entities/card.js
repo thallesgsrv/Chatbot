@@ -1,4 +1,3 @@
-const Call = require('./call.js')
 const sequelize = require('../connections/connection.js')
 const {DataTypes} = require('sequelize');
 
@@ -16,9 +15,8 @@ const Card = sequelize.define(
         },
         callId: {
             type: DataTypes.BIGINT,
-            allowNull: false,
             references: {
-                model: Call,
+                model: 'call',
                 key: 'id'
             }
         },
