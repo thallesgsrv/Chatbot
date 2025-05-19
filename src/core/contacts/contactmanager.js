@@ -29,28 +29,44 @@ async function getAllContacts() {
 // Salva a lista de contatos ignorados na tabela disablecontact
 async function saveIgnoredContacts(newContacts) {
     try {
-        // Remove todos os registros antigos
-        await DisableContact.destroy({ where: {} });
+        // Get all new phone numbers to be blocked
+        const newPhones = new Set(newContacts.map(c => c.id));
+        
+        // Get existing disabled contacts
+        const existingContacts = await DisableContact.findAll();
+        const existingPhones = new Set(existingContacts.map(c => c.telephone));
 
-        // Insere os novos contatos ignorados
-        for (const contact of newContacts) {
+        // Remove contacts that are no longer in the new list
+        const phonesToRemove = [...existingPhones].filter(phone => !newPhones.has(phone));
+        if (phonesToRemove.length > 0) {
+            await DisableContact.destroy({
+                where: {
+                    telephone: phonesToRemove
+                }
+            });
+        }
+
+        // Add new contacts that don't exist yet
+        const phonesToAdd = [...newPhones].filter(phone => !existingPhones.has(phone));
+        for (const phone of phonesToAdd) {
+            const contact = newContacts.find(c => c.id === phone);
             await DisableContact.create({
-                telephone: contact.id, 
-                description: contact.description || 'Desababilitado por atendente',
+                telephone: phone,
+                description: contact.description || 'Desabilitado por atendente',
                 disableDate: new Date(),
                 attendantId: contact.attendantId || 1
             });
         }
 
         const total = await DisableContact.count();
-
         return {
             success: true,
-            added: newContacts.length,
-            removed: 0,
+            added: phonesToAdd.length,
+            removed: phonesToRemove.length,
             total,
             message: 'Lista de contatos ignorados atualizada'
         };
+
     } catch (error) {
         console.error('Erro ao atualizar contatos ignorados:', error);
         return {

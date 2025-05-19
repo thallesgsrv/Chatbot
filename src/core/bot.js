@@ -13,7 +13,7 @@ const { handleRecovery } = require('./recovery.js');
 const { getRecentContacts } = require('./contacts/getcontacts.js');
 const Screening = require('./modules/screening');
 const ProblemManager = require('./modules/problemmanager');
-const DisableContact = require('../models/entities/disablecontact');
+const DisabledContactManager = require('./contacts/disabledcontacts.js');
 
 // Import Sequelize models
 const Call = require('../models/entities/call');
@@ -318,51 +318,46 @@ function setupSocketListeners(io) {
     });
 }
 
+// Controle de mensagens recentes
+const recentMessages = new Map();
+const MESSAGE_TIMEOUT = 2000; 
+
+const sentMessages = new Map();
+const DEBOUNCE_TIME = 2000; 
+
 // Ouvir mensagens recebidas
 async function startListeningForMessages(conn, io) {
     const processedMessageIds = new Set();
     const MESSAGE_EXPIRY = 60000;
 
     conn.client.ev.on('newMessage', async (newMsg) => {
+        const messageId = `${newMsg.result.id || newMsg.result.messageId || Date.now()}_${newMsg.result.chatId}`;
         const chatId = newMsg.result.chatId;
         const phone = chatId.replace('@c.us', '');
-        
-        // Check if contact is disabled
-        const isDisabled = await DisableContact.findOne({
-            where: { telephone: phone }
-        });
-        
-        if (isDisabled) {
-            console.log(`Ignored message from disabled contact: ${phone}`);
+
+        // Check if contact is disabled first
+        if (await DisabledContactManager.isDisabled(phone)) {
+            console.log(`Mensagem ignorada de contato desabilitado: ${phone}`);
             return;
         }
-
-        // Fix timestamp handling - WhatsApp timestamps are in seconds since epoch
-        let messageTimestamp = normalizeTimestamp(newMsg.result);
-
-        // Ignore messages from before bot startup
-        if (messageTimestamp < BOT_START_TIME) {
-            if (process.env.NODE_ENV === 'development') {
-                console.log('Debug timestamp:', {
-                    originalMessage: newMsg.result,
-                    normalizedTimestamp: messageTimestamp,
-                    messageDate: new Date(messageTimestamp).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-                    botStart: new Date(BOT_START_TIME).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-                    timeDiff: Math.round((BOT_START_TIME - messageTimestamp) / 1000) + ' segundos'
-                });
-            }
-            return;
-        }
-
-        // Verificar se a mensagem já foi processada
+        
+        // Early return if already processed
         if (processedMessageIds.has(messageId)) {
             console.log(logs.processedMessage.replace('%s', messageId));
             return;
         }
 
-        // Adicionar mensagem ao controle
+        // Add message to processed set
         processedMessageIds.add(messageId);
         setTimeout(() => processedMessageIds.delete(messageId), MESSAGE_EXPIRY);
+
+        // Fix timestamp handling
+        let messageTimestamp = normalizeTimestamp(newMsg.result);
+
+        // Ignore old messages
+        if (messageTimestamp < BOT_START_TIME) {
+            return;
+        }
 
         try {
             // Ignore bot messages and group messages
@@ -370,7 +365,7 @@ async function startListeningForMessages(conn, io) {
                 return;
             }
 
-            
+            // Single check for human attended status
             if (sharedState.isHumanAttended(chatId)) {
                 return;
             }
@@ -807,25 +802,7 @@ async function handleChatClosed(chatId, io) {
  * @param {string} message - Mensagem a ser enviada
  * @returns {Promise<void>}
  */
-// Controle de mensagens recentes
-const recentMessages = new Map();
-const MESSAGE_TIMEOUT = 2000; 
-
-const sentMessages = new Map();
-const DEBOUNCE_TIME = 2000; 
-
-
 async function sendMessage(conn, chatId, message) {
-    const phone = chatId.replace('@c.us', '');
-    const isDisabled = await DisableContact.findOne({
-        where: { telephone: phone }
-    });
-    
-    if (isDisabled) {
-        console.log(`Blocked sending message to disabled contact: ${phone}`);
-        return;
-    }
-
     if (!messageQueue.has(chatId)) {
         messageQueue.set(chatId, Promise.resolve());
     }
