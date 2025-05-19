@@ -1,6 +1,8 @@
 const sequelize = require('../connections/connection.js')
 const {DataTypes} = require('sequelize');
 const CreateCall = require('./createcall.js');
+const Attendant = require('./attendant.js');
+const Card = require('./card.js');
 
 const Call = sequelize.define(
     'call',
@@ -40,14 +42,24 @@ const Call = sequelize.define(
                 model: 'card',
                 key: 'id'
             }
+        },
+        attendantId: {
+            type: DataTypes.BIGINT,
+            allowNull: true,
+            references: {
+                model: 'attendant',
+                key: 'id'
+            }
         }
     },
     {
         freezeTableName: true,
         timestamps: false,
     },
-
 );
+
 Call.belongsTo(CreateCall, { foreignKey: 'createCallId', as: 'createcall' });
+Call.belongsTo(Attendant, { foreignKey: 'attendantId', as: 'attendant' });
+Call.hasOne(Card, { foreignKey: 'callId', as: 'card' });
 
 module.exports = Call;

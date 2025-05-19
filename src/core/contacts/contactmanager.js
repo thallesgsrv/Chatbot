@@ -1,14 +1,7 @@
 const { getRecentContacts, getBotConnection } = require('../bot.js');
+const DisableContact = require('../../models/entities/disablecontact.js');
 
-async function executeQuery(query, params = []) {
-    return new Promise((resolve, reject) => {
-        getDatabase().all(query, params, (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows || []);
-        });
-    });
-}
-
+// Retorna contatos recentes e contatos desabilitados (ignorados)
 async function getAllContacts() {
     try {
         const botConn = getBotConnection();
@@ -17,14 +10,15 @@ async function getAllContacts() {
         }
 
         const contacts = await getRecentContacts(botConn);
-        const ignoredContacts = await executeQuery(
-            'SELECT id FROM ignored_contacts',
-            []
-        );
+
+        // Busca telefones ignorados na tabela disablecontact
+        const ignoredContacts = await DisableContact.findAll({
+            attributes: ['telephone']
+        });
 
         return {
             contacts,
-            ignoredContacts: ignoredContacts.map(row => row.id)
+            ignoredContacts: ignoredContacts.map(row => row.telephone)
         };
     } catch (error) {
         console.error('Erro ao obter contatos:', error);
@@ -32,67 +26,31 @@ async function getAllContacts() {
     }
 }
 
+// Salva a lista de contatos ignorados na tabela disablecontact
 async function saveIgnoredContacts(newContacts) {
     try {
-        if (!Array.isArray(newContacts)) {
-            throw new Error('Contatos devem ser um array');
+        // Remove todos os registros antigos
+        await DisableContact.destroy({ where: {} });
+
+        // Insere os novos contatos ignorados
+        for (const contact of newContacts) {
+            await DisableContact.create({
+                telephone: contact.id, 
+                description: contact.description || 'Desababilitado por atendente',
+                disableDate: new Date(),
+                attendantId: contact.attendantId || 1
+            });
         }
 
-        const db = getDatabase();
-        
-        await new Promise((resolve, reject) => {
-            db.run('BEGIN TRANSACTION', err => err ? reject(err) : resolve());
-        });
+        const total = await DisableContact.count();
 
-        try {
-            const existingContacts = await executeQuery('SELECT id FROM ignored_contacts');
-            const newContactIds = new Set(newContacts.map(c => c.id));
-            const contactsToRemove = existingContacts
-                .map(row => row.id)
-                .filter(id => !newContactIds.has(id));
-
-            if (contactsToRemove.length > 0) {
-                const placeholders = contactsToRemove.map(() => '?').join(',');
-                await executeQuery(
-                    `DELETE FROM ignored_contacts WHERE id IN (${placeholders})`,
-                    contactsToRemove
-                );
-            }
-
-            const stmt = db.prepare('INSERT OR REPLACE INTO ignored_contacts (id, name, number) VALUES (?, ?, ?)');
-
-            for (const contact of newContacts) {
-                await new Promise((resolve, reject) => {
-                    stmt.run([contact.id, contact.name, contact.number], err => {
-                        if (err) reject(err);
-                        else resolve();
-                    });
-                });
-            }
-
-            await new Promise((resolve, reject) => {
-                stmt.finalize(err => err ? reject(err) : resolve());
-            });
-
-            await new Promise((resolve, reject) => {
-                db.run('COMMIT', err => err ? reject(err) : resolve());
-            });
-
-            const totalIgnored = await executeQuery('SELECT COUNT(*) as count FROM ignored_contacts')
-                .then(rows => rows[0].count);
-
-            return {
-                success: true,
-                added: newContacts.length,
-                removed: contactsToRemove.length,
-                total: totalIgnored,
-                message: 'Lista de contatos ignorados atualizada com sucesso'
-            };
-
-        } catch (error) {
-            await new Promise(resolve => db.run('ROLLBACK', resolve));
-            throw error;
-        }
+        return {
+            success: true,
+            added: newContacts.length,
+            removed: 0,
+            total,
+            message: 'Lista de contatos ignorados atualizada'
+        };
     } catch (error) {
         console.error('Erro ao atualizar contatos ignorados:', error);
         return {

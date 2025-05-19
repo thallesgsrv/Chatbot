@@ -29,24 +29,34 @@
                 <label for="filterPosition">Filtrar por Cargo</label>
                 <select id="filterPosition" class="form-control" onchange="filterByPosition(this.value)">
                     <option value="">Todos os cargos</option>
-                    <option value="Aluno">Aluno</option>
-                    <option value="Professor">Professor</option>
-                    <option value="Supervisor">Supervisor</option>
-                    <option value="Secretário">Secretário</option>
-                    <option value="Administrador">Administrador</option>
-                    <option value="Responsável">Responsável</option>
                 </select>
             </div>
             <div class="filter-group">
                 <label for="filterAttendant">Filtrar por Atendente</label>
                 <select id="filterAttendant" class="form-control" onchange="filterByAttendant(this.value)">
                     <option value="">Todos os atendentes</option>
-                    <option value="Bot">Bot</option>
                 </select>
             </div>
         </div>
 
         <div id="completed-list" class="completed-list">
+            <table class="table table-striped table-bordered">
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Cliente</th>
+                        <th>Escola</th>
+                        <th>Usuário</th>
+                        <th>Cargo</th>
+                        <th>Atendente</th>
+                        <th>Descrição</th>
+                        <th>Duração (min)</th>
+                    </tr>
+                </thead>
+                <tbody id="completed-list-body">
+                    <!-- Linhas preenchidas via JS -->
+                </tbody>
+            </table>
         </div>
     </div>
 

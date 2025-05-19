@@ -86,6 +86,25 @@ function calculateDuration(durationMinutes) {
     return `${days}d ${remainingHours}h ${minutes}min`;
 }
 
+function formatText(text, type = 'default') {
+    if (!text) return '';
+    
+    // Don't format descriptions
+    if (type === 'description') return text;
+    
+    // Handle school names
+    if (type === 'school') {
+        // Return original text without any formatting for schools
+        return text;
+    }
+    
+    // Regular text formatting for non-school text
+    return text.toLowerCase().split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+}
+
+// Update display functions to use the new formatText
 function displayCompletedAttendances(attendances) {
     const completedList = document.getElementById('completed-list');
     completedList.innerHTML = '';
@@ -102,16 +121,16 @@ function displayCompletedAttendances(attendances) {
         item.className = 'completed-item';
         item.innerHTML = `
             <div class="user-info-section">
-                <div class="user-name">${attendance.name || 'Sem nome'}</div>
-                <div class="user-details"><i class="fas fa-user-tag"></i> ${attendance.position || 'Não informado'}</div>
-                <div class="user-details"><i class="fas fa-map-marker-alt"></i> ${attendance.city || 'Não informado'}</div>
-                <div class="user-details"><i class="fas fa-school"></i> ${attendance.school || 'Não informado'}</div>
-                <div class="user-details"><i class="fas fa-headset"></i> Atendente: ${attendance.attendant || 'Não atribuído'}</div>
+                <div class="user-name">${formatText(attendance.name) || 'Sem nome'}</div>
+                <div class="user-details"><i class="fas fa-user-tag"></i> ${formatText(attendance.position) || 'Não informado'}</div>
+                <div class="user-details"><i class="fas fa-map-marker-alt"></i> ${formatText(attendance.school?.client) || 'Não informado'}</div>
+                <div class="user-details"><i class="fas fa-school"></i> ${attendance.school?.name || 'Não informado'}</div>
+                <div class="user-details"><i class="fas fa-headset"></i> Atendente: ${formatText(attendance.attendant?.name) || 'Bot'}</div>
             </div>
             
             <div class="problem-section">
                 <div class="problem-title">Problema Relatado</div>
-                <div class="problem-description">${attendance.description || 'Sem descrição'}</div>
+                <div class="problem-description">${formatText(attendance.description) || 'Sem descrição'}</div>
             </div>
             
             <div class="time-section">
@@ -134,38 +153,110 @@ function displayCompletedAttendances(attendances) {
     console.log('Attendances displayed:', attendances.length);
 }
 
-async function filterByDate(date) {
-    if (!date) return loadCompletedAttendances();
+async function applyFilters() {
+    const date = document.getElementById('filterDate').value;
+    const position = document.getElementById('filterPosition').value;
+    const attendant = document.getElementById('filterAttendant').value;
+    
+    const filters = {};
+    if (date) filters.date = date;
+    if (position) filters.position = position;
+    if (attendant) filters.attendant = attendant;
     
     try {
-        const response = await fetch(`http://localhost:3000/api/statistics/getCompletedAttendances?date=${date}`);
+        const params = new URLSearchParams(filters);
+        const response = await fetch(`http://localhost:3000/api/statistics/getCompletedAttendances?${params}`);
         const filteredAttendances = await response.json();
         displayCompletedAttendances(filteredAttendances);
     } catch (error) {
-        console.error('Erro ao filtrar por data:', error);
+        console.error('Erro ao aplicar filtros:', error);
     }
+}
+
+async function filterByDate(date) {
+    await applyFilters();
 }
 
 async function filterByPosition(position) {
-    if (!position) return loadCompletedAttendances();
-    
-    try {
-        const response = await fetch(`http://localhost:3000/api/statistics/getCompletedAttendances?position=${position}`);
-        const filteredAttendances = await response.json();
-        displayCompletedAttendances(filteredAttendances);
-    } catch (error) {
-        console.error('Erro ao filtrar por cargo:', error);
-    }
+    await applyFilters();
 }
 
 async function filterByAttendant(attendant) {
-    if (!attendant) return loadCompletedAttendances();
+    await applyFilters();
+}
+
+async function fetchCompletedAttendances(filters = {}) {
+    const params = new URLSearchParams(filters).toString();
+    const response = await fetch(`http://localhost:3000/api/statistics/getCompletedAttendances?${params}`);
+    const data = await response.json();
+    renderCompletedAttendances(data);
+}
+
+function renderCompletedAttendances(attendances) {
+    const tbody = document.getElementById('completed-list-body');
+    tbody.innerHTML = '';
     
+    if (!attendances || attendances.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center">Nenhum atendimento encontrado</td></tr>';
+        return;
+    }
+
+    attendances.forEach(att => {
+        const schoolInfo = att.school || {};
+        tbody.innerHTML += `
+            <tr>
+                <td>${att.date_completed || ''}</td>
+                <td>${formatText(schoolInfo.client || '')}</td>
+                <td>${formatText(schoolInfo.name || '', 'school')}</td>
+                <td>${formatText(att.name || '')}</td>
+                <td>${formatText(att.position || '')}</td>
+                <td>${formatText(att.attendant?.name || 'Bot')}</td>
+                <td>${att.description || ''}</td>
+                <td>${att.duration_minutes || ''}</td>
+            </tr>
+        `;
+    });
+}
+
+async function loadFilters() {
     try {
-        const response = await fetch(`http://localhost:3000/api/statistics/getCompletedAttendances?attendant=${attendant}`);
-        const filteredAttendances = await response.json();
-        displayCompletedAttendances(filteredAttendances);
+        // Load positions
+        const positionsResponse = await fetch('http://localhost:3000/api/statistics/getPositions');
+        const positions = await positionsResponse.json();
+        const filterPosition = document.getElementById('filterPosition');
+        filterPosition.innerHTML = '<option value="">Todos os cargos</option>';
+        positions.forEach(position => {
+            const option = document.createElement('option');
+            option.value = position;
+            option.textContent = formatText(position);
+            filterPosition.appendChild(option);
+        });
+
+        // Load attendants
+        const attendantsResponse = await fetch('http://localhost:3000/api/statistics/getCompletedAttendances');
+        const attendances = await attendantsResponse.json();
+        const uniqueAttendants = [...new Set(attendances
+            .filter(a => a.attendant)
+            .map(a => ({ id: a.attendant.id, name: a.attendant.name }))
+        )];
+
+        const filterAttendant = document.getElementById('filterAttendant');
+        filterAttendant.innerHTML = '<option value="">Todos os atendentes</option><option value="Bot">Bot</option>';
+        uniqueAttendants.forEach(attendant => {
+            if (attendant.id && attendant.name) {
+                const option = document.createElement('option');
+                option.value = attendant.id;
+                option.textContent = formatText(attendant.name);
+                filterAttendant.appendChild(option);
+            }
+        });
     } catch (error) {
-        console.error('Erro ao filtrar por atendente:', error);
+        console.error('Erro ao carregar filtros:', error);
     }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    Sidebar.init();
+    loadCompletedAttendances();
+    loadFilters();
+});

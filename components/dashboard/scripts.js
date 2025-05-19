@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     Sidebar.init();
     Charts.init();
     loadCities();
+    loadClients();
     fetchDataAndUpdateCharts('');
     
     const observer = new MutationObserver((mutations) => {
@@ -147,11 +148,30 @@ async function loadCities() {
     }
 }
 
-async function loadSchools(city = '') {
+async function loadClients() {
     try {
-        const url = city 
-            ? `http://localhost:3000/api/filters/getSchools?city=${encodeURIComponent(city)}`
+        const response = await fetch('http://localhost:3000/api/filters/getClients');
+        const clients = await response.json();
+        const clientFilter = document.getElementById('clientFilter');
+        
+        clientFilter.innerHTML = '<option value="">Todos os clientes</option>';
+        clients.forEach(client => {
+            const option = document.createElement('option');
+            option.value = client;
+            option.textContent = formatText(client);
+            clientFilter.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Erro ao carregar clientes:', error);
+    }
+}
+
+async function loadSchools(client = '') {
+    try {
+        const url = client 
+            ? `http://localhost:3000/api/filters/getSchools?client=${encodeURIComponent(client)}`
             : 'http://localhost:3000/api/filters/getSchools';
+            
         const response = await fetch(url);
         const schools = await response.json();
         const schoolFilter = document.getElementById('schoolFilter');
@@ -159,8 +179,8 @@ async function loadSchools(city = '') {
         schoolFilter.innerHTML = '<option value="">Todas as escolas</option>';
         schools.forEach(school => {
             const option = document.createElement('option');
-            option.value = school;
-            option.textContent = school;
+            option.value = school.id;
+            option.textContent = formatText(school.name);
             schoolFilter.appendChild(option);
         });
     } catch (error) {
@@ -190,59 +210,42 @@ function showNotification(title, message) {
 
 async function applyFilters() {
     const filterBtn = document.querySelector('.apply-filter-btn');
-    const cityFilter = document.getElementById('cityFilter');
+    const clientFilter = document.getElementById('clientFilter');
     const schoolFilter = document.getElementById('schoolFilter');
     
     filterBtn.disabled = true;
-    const originalText = filterBtn.innerHTML;
     filterBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Aplicando...';
     
     try {
         const params = new URLSearchParams({
-            city: cityFilter.value,
+            client: clientFilter.value,
             school: schoolFilter.value
         });
         
-        const response = await fetch(`http://localhost:3000/api/statistics/getChartData?${params}`);
-        if (!response.ok) throw new Error('Erro na resposta do servidor');
-        
-        const data = await response.json();
-        if (!data || !data.weekly || !data.monthly) {
-            throw new Error('Dados inválidos recebidos');
-        }
-
-        Charts.updateData(data.weekly, data.monthly);
-        Charts.updateTheme(document.body.classList.contains('dark-theme'));
+        await fetchDataAndUpdateCharts(params.toString());
         
         filterBtn.innerHTML = '<i class="fas fa-check"></i> Aplicado';
         setTimeout(() => {
-            filterBtn.innerHTML = originalText;
+            filterBtn.innerHTML = '<i class="fas fa-filter"></i> Aplicar Filtros';
             filterBtn.disabled = false;
         }, 1000);
     } catch (error) {
         console.error('Erro ao aplicar filtros:', error);
         filterBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Erro';
         setTimeout(() => {
-            filterBtn.innerHTML = originalText;
+            filterBtn.innerHTML = '<i class="fas fa-filter"></i> Aplicar Filtros';
             filterBtn.disabled = false;
         }, 1000);
     }
 }
 
+// Inicialização
 document.addEventListener('DOMContentLoaded', () => {
-    const cityFilter = document.getElementById('cityFilter');
-    const filterBtn = document.querySelector('.apply-filter-btn');
+    loadClients();
+    Charts.init();
+    fetchDataAndUpdateCharts();
     
-    cityFilter.addEventListener('change', () => {
-        filterBtn.innerHTML = '<i class="fas fa-filter"></i> Aplicar Filtros';
-        filterBtn.disabled = false;
+    document.getElementById('clientFilter').addEventListener('change', (e) => {
+        loadSchools(e.target.value);
     });
-});
-
-document.getElementById('cityFilter').addEventListener('change', async (e) => {
-    const city = e.target.value;
-    await loadSchools(city);
-    const filterBtn = document.querySelector('.apply-filter-btn');
-    filterBtn.innerHTML = '<i class="fas fa-filter"></i> Aplicar Filtros';
-    filterBtn.disabled = false;
 });

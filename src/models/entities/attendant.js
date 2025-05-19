@@ -22,6 +22,4 @@ const Attendant = sequelize.define(
     },
 );
 
-Attendant.hasMany(Call);
-
 module.exports = Attendant;

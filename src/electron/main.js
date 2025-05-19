@@ -59,7 +59,7 @@ function createWindow() {
         width: 1200,
         height: 800,
         frame: true,
-        autoHideMenuBar: false,
+        autoHideMenuBar: true,
         backgroundColor: '#343a40',
         titleBarStyle: 'default',
         titleBarOverlay: {

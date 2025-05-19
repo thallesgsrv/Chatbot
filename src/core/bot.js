@@ -13,6 +13,7 @@ const { handleRecovery } = require('./recovery.js');
 const { getRecentContacts } = require('./contacts/getcontacts.js');
 const Screening = require('./modules/screening');
 const ProblemManager = require('./modules/problemmanager');
+const DisableContact = require('../models/entities/disablecontact');
 
 // Import Sequelize models
 const Call = require('../models/entities/call');
@@ -324,8 +325,18 @@ async function startListeningForMessages(conn, io) {
 
     conn.client.ev.on('newMessage', async (newMsg) => {
         const chatId = newMsg.result.chatId;
-        const messageId = newMsg.result.id || `${chatId}_${Date.now()}`;
+        const phone = chatId.replace('@c.us', '');
         
+        // Check if contact is disabled
+        const isDisabled = await DisableContact.findOne({
+            where: { telephone: phone }
+        });
+        
+        if (isDisabled) {
+            console.log(`Ignored message from disabled contact: ${phone}`);
+            return;
+        }
+
         // Fix timestamp handling - WhatsApp timestamps are in seconds since epoch
         let messageTimestamp = normalizeTimestamp(newMsg.result);
 
@@ -805,6 +816,16 @@ const DEBOUNCE_TIME = 2000;
 
 
 async function sendMessage(conn, chatId, message) {
+    const phone = chatId.replace('@c.us', '');
+    const isDisabled = await DisableContact.findOne({
+        where: { telephone: phone }
+    });
+    
+    if (isDisabled) {
+        console.log(`Blocked sending message to disabled contact: ${phone}`);
+        return;
+    }
+
     if (!messageQueue.has(chatId)) {
         messageQueue.set(chatId, Promise.resolve());
     }
