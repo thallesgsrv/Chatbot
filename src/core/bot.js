@@ -14,6 +14,7 @@ const { getRecentContacts } = require('./contacts/getcontacts.js');
 const Screening = require('./modules/screening');
 const ProblemManager = require('./modules/problemmanager');
 const DisabledContactManager = require('./contacts/disabledcontacts.js');
+const QueueManager = require('./modules/queuemanager.js');
 
 // Import Sequelize models
 const Call = require('../models/entities/call');
@@ -126,8 +127,9 @@ async function startHydraBot(io) {
         console.log('Bot initialized successfully');
         
         // Update initialization to use shared state
-        problemManager = new ProblemManager(io, botConnection, null, sharedState);
-        screening = new Screening(io, getStatusUpdate, problemManager, sharedState);
+        const queueManager = new QueueManager(io, botConnection);
+        problemManager = new ProblemManager(io, botConnection, null, sharedState, queueManager);
+        screening = new Screening(io, getStatusUpdate, problemManager, sharedState, queueManager);
         problemManager.setScreening(screening);
         
         bot.on('connection', async (conn) => {
@@ -136,7 +138,8 @@ async function startHydraBot(io) {
                 conn.io = io; 
                 botConnection = conn;
                 problemManager.setBotConnection(conn);
-                startListeningForMessages(conn, io);
+                queueManager.setBotConnection(conn); 
+                startListeningForMessages(conn, io, queueManager); 
             } else {
                 console.error(errors.connectionError);
             }
@@ -326,14 +329,24 @@ const sentMessages = new Map();
 const DEBOUNCE_TIME = 2000; 
 
 // Ouvir mensagens recebidas
-async function startListeningForMessages(conn, io) {
+async function startListeningForMessages(conn, io, queueManager) {
     const processedMessageIds = new Set();
     const MESSAGE_EXPIRY = 60000;
+    const IGNORE_MESSAGES_BEFORE = Date.now(); // Marca timestamp de início do bot
 
     conn.client.ev.on('newMessage', async (newMsg) => {
         const messageId = `${newMsg.result.id || newMsg.result.messageId || Date.now()}_${newMsg.result.chatId}`;
         const chatId = newMsg.result.chatId;
         const phone = chatId.replace('@c.us', '');
+
+        // Usa a função normalizeTimestamp para processar o timestamp
+        const messageTimestamp = normalizeTimestamp(newMsg.result);
+
+        // Ignora mensagens antigas (anteriores ao start do bot)
+        if (messageTimestamp < IGNORE_MESSAGES_BEFORE) {
+            console.log(`Ignorando mensagem antiga de ${chatId}, timestamp: ${new Date(messageTimestamp).toISOString()}`);
+            return;
+        }
 
         // Check if contact is disabled first
         if (await DisabledContactManager.isDisabled(phone)) {
@@ -350,14 +363,6 @@ async function startListeningForMessages(conn, io) {
         // Add message to processed set
         processedMessageIds.add(messageId);
         setTimeout(() => processedMessageIds.delete(messageId), MESSAGE_EXPIRY);
-
-        // Fix timestamp handling
-        let messageTimestamp = normalizeTimestamp(newMsg.result);
-
-        // Ignore old messages
-        if (messageTimestamp < BOT_START_TIME) {
-            return;
-        }
 
         try {
             // Ignore bot messages and group messages
@@ -498,7 +503,7 @@ async function startListeningForMessages(conn, io) {
     conn.client.ev.on('chatClosed', async (chatId) => {
         // Ignora eventos de grupos
         if (!chatId.endsWith('@g.us')) {
-            handleChatClosed(chatId, io);
+            handleChatClosed(chatId, io, queueManager);
         }
     });
 }
@@ -633,27 +638,19 @@ async function getStatusUpdate() {
 
 // Processa novo usuário
 async function handleNewUser(conn, chatId, userInfo, io) {
-    const activeCount = await Call.count({ where: { status: 'ACTIVE' } });
-    const status = activeCount < CONFIG.MAX_ACTIVE_CHATS ? 'ACTIVE' : 'WAITING';
-    
     try {
-        await saveClientInfoToDatabase(userInfo, chatId, status, io);
+        const createCall = await saveClientInfoToDatabase(userInfo, chatId);
+        const status = await queueManager.addToQueue(chatId, createCall.id);
 
+        // Só inicia fluxo de problemas se estiver ACTIVE
         if (status === 'ACTIVE') {
             await sendMessage(
                 conn, 
                 chatId, 
                 greetings.attendantAvailable.replace('%s', userInfo.name)
             );
-            await sendProblemOptions(conn, chatId);
+            await problemManager.sendProblemOptions(conn, chatId);
             userCurrentTopic[chatId] = 'problema';
-        } else {
-            const position = await getWaitingPosition(chatId);
-            await sendMessage(
-                conn,
-                chatId,
-                greetings.queueUpdate.replace('%s', userInfo.name).replace('%d', position)
-            );
         }
     } catch (error) {
         console.error(errors.processError.replace('%s', error));
@@ -743,53 +740,11 @@ async function sendProblemOptions(conn, chatId) {
 }
 
 // Processa fechamento do chat
-async function handleChatClosed(chatId, io) {
+async function handleChatClosed(chatId, io, queueManager) {
     try {
-        // First emit chatCompleted event immediately
+        await queueManager.removeFromQueue(chatId);
         io.emit('chatCompleted', { chatId });
-        
-        // Mark chat as completed
-        await Call.update(
-            { status: 'COMPLETED', dateTimeFinish: new Date() },
-            {
-                where: {},
-                include: [{
-                    model: CreateCall,
-                    as: 'createcall',
-                    where: { chatId }
-                }]
-            }
-        );
-
-        // Remove from active chats immediately
-        if (sharedState.isHumanAttended(chatId)) {
-            sharedState.removeChatFromHumanAttended(chatId);
-        }
-
-        // Get next user in waiting list
-        const nextUser = await getNextInWaitingList();
-        
-        if (nextUser) {
-            await Call.update(
-                { status: 'ACTIVE' },
-                { where: { id: nextUser.id } }
-            );
-
-            await sendMessage(
-                botConnection,
-                nextUser.createcall.chatId,
-                greetings.nextInLine.replace('%s', nextUser.createcall.user ? nextUser.createcall.user.name : '')
-            );
-            await sendProblemOptions(botConnection, nextUser.createcall.chatId);
-        }
-
-        // Update waiting users and send status update
-        await updateWaitingUsers(io);
-        await sendStatusUpdateToMainProcess(io);
-
-        // Force an immediate UI refresh
         io.emit('forceUpdate');
-
     } catch (error) {
         console.error('Erro ao finalizar chat:', error);
     }
@@ -969,20 +924,26 @@ function redirectToWhatsAppChat(chatId) {
 function normalizeTimestamp(msg) {
     if (!msg) return Date.now();
 
-    // Case 1: Unix epoch in seconds (e.g. 1234567890)
+    // Case 1: messageTimestamp property (seconds)
     if (msg.messageTimestamp && typeof msg.messageTimestamp === 'number') {
-        return msg.messageTimestamp * 1000;
+        // Convert to milliseconds if in seconds (less than year 2000)
+        return msg.messageTimestamp < 1e10 ? msg.messageTimestamp * 1000 : msg.messageTimestamp;
     }
 
-    // Case 2: Unix epoch in milliseconds (e.g. 1234567890123)
-    if (msg.messageTimestamp && msg.messageTimestamp > 1e11) {
-        return msg.messageTimestamp;
+    // Case 2: timestamp property (string date or number)
+    if (msg.timestamp) {
+        if (typeof msg.timestamp === 'string') {
+            const parsed = Date.parse(msg.timestamp);
+            if (!isNaN(parsed)) return parsed;
+        } else if (typeof msg.timestamp === 'number') {
+            // Convert to milliseconds if in seconds
+            return msg.timestamp < 1e10 ? msg.timestamp * 1000 : msg.timestamp;
+        }
     }
 
-    // Case 3: String date (e.g. "2023-01-01T00:00:00.000Z")
-    if (msg.timestamp && typeof msg.timestamp === 'string') {
-        const parsed = Date.parse(msg.timestamp);
-        if (!isNaN(parsed)) return parsed;
+    // Case 3: t property (some WhatsApp message formats)
+    if (msg.t && typeof msg.t === 'number') {
+        return msg.t < 1e10 ? msg.t * 1000 : msg.t;
     }
 
     // Fallback to current time if no valid timestamp found
