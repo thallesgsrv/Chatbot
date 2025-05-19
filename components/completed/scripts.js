@@ -92,13 +92,20 @@ function formatText(text, type = 'default') {
     // Don't format descriptions
     if (type === 'description') return text;
     
-    // Handle school names
+    // Special handling for school names
     if (type === 'school') {
-        // Return original text without any formatting for schools
-        return text;
+        // Split the text into words
+        return text.split(' ').map(word => {
+            // Keep known acronyms in uppercase
+            if (/^(EMEF|EMEIF|EE|CEI|CMEI|EM)$/i.test(word)) {
+                return word.toUpperCase();
+            }
+            // Regular word capitalization
+            return word.toLowerCase().replace(/^[a-z]/, c => c.toUpperCase());
+        }).join(' ');
     }
     
-    // Regular text formatting for non-school text
+    // Regular text formatting for other types
     return text.toLowerCase().split(' ')
         .map(word => word.charAt(0).toUpperCase() + word.slice(1))
         .join(' ');
@@ -124,7 +131,7 @@ function displayCompletedAttendances(attendances) {
                 <div class="user-name">${formatText(attendance.name) || 'Sem nome'}</div>
                 <div class="user-details"><i class="fas fa-user-tag"></i> ${formatText(attendance.position) || 'Não informado'}</div>
                 <div class="user-details"><i class="fas fa-map-marker-alt"></i> ${formatText(attendance.school?.client) || 'Não informado'}</div>
-                <div class="user-details"><i class="fas fa-school"></i> ${attendance.school?.name || 'Não informado'}</div>
+                <div class="user-details"><i class="fas fa-school"></i> ${formatText(attendance.school?.name, 'school') || 'Não informado'}</div>
                 <div class="user-details"><i class="fas fa-headset"></i> Atendente: ${formatText(attendance.attendant?.name) || 'Bot'}</div>
             </div>
             
