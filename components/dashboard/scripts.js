@@ -26,28 +26,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     await fetchDataAndUpdateCharts();
 });
 
-function formatName(name) {
-    if (!name) return '';
-    return name
-        .toLowerCase()
-        .split(' ')
-        .map(word => {
-            // Manter siglas de escolas em maiúsculo
-            if (/^(EMEF|EMEIF|EMEIEF|EE|CEI|CMEI|EM)$/i.test(word)) {
-                return word.toUpperCase();
-            }
-            return word.charAt(0).toUpperCase() + word.slice(1);
-        })
-        .join(' ');
-}
-
 async function fetchDataAndUpdateCharts(client = '', school = '') {
     try {
         const params = new URLSearchParams();
         if (client) params.append('client', client);
         if (school) params.append('school', school);
-        
-        console.log('Buscando dados com filtros:', params.toString());
         
         const response = await fetch(`http://localhost:3000/api/statistics/getChartData?${params}`);
         if (!response.ok) throw new Error('Erro na resposta do servidor');
@@ -81,7 +64,8 @@ function generateReport() {
     const startDate = document.getElementById('startDate').value;
     const endDate = document.getElementById('endDate').value;
     const format = document.querySelector('input[name="reportFormat"]:checked').value;
-    const city = document.getElementById('cityFilter').value;
+    // Use current graph filters instead
+    const client = document.getElementById('clientFilter').value;
     const school = document.getElementById('schoolFilter').value;
 
     if (!startDate || !endDate) {
@@ -91,6 +75,7 @@ function generateReport() {
 
     const start = new Date(startDate);
     const end = new Date(endDate);
+    end.setHours(23, 59, 59);
 
     if (start > end) {
         alert('A data inicial não pode ser posterior à data final.');
@@ -100,18 +85,22 @@ function generateReport() {
     const params = new URLSearchParams({
         start: startDate,
         end: endDate,
-        format: format,
-        city: city,
-        school: school
+        format: format
     });
 
+    if (client) params.append('city', client);
+    if (school) params.append('school', school);
+
     fetch(`http://localhost:3000/api/reports/generateReport?${params}`)
-        .then(response => response.blob())
+        .then(response => {
+            if (!response.ok) throw new Error('Erro ao gerar relatório');
+            return response.blob();
+        })
         .then(blob => {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `relatorio-${startDate}-${endDate}.${format}`;
+            a.download = `Relatório-${startDate}-a-${endDate}.${format}`;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
@@ -143,7 +132,7 @@ async function loadClients() {
             if (client) {
                 const option = document.createElement('option');
                 option.value = client;
-                option.textContent = formatName(client);
+                option.textContent = client;
                 clientFilter.appendChild(option);
             }
         });
@@ -168,7 +157,7 @@ async function loadSchools(client = '') {
         schools.forEach(school => {
             const option = document.createElement('option');
             option.value = school.id;
-            option.textContent = formatName(school.name); // Usando formatName aqui
+            option.textContent = school.name;
             schoolFilter.appendChild(option);
         });
     } catch (error) {
@@ -177,20 +166,8 @@ async function loadSchools(client = '') {
 }
 
 async function applyFilters() {
-    try {
-        const client = document.getElementById('clientFilter').value;
-        const school = document.getElementById('schoolFilter').value;
-        
-        console.log('Aplicando filtros:', { client, school });
-        
-        const filters = {};
-        if (client) filters.client = client;
-        if (school) filters.school = school;
-        
-        await fetchDataAndUpdateCharts(client, school);
-        
-        console.log('Filtros aplicados com sucesso');
-    } catch (error) {
-        console.error('Erro ao aplicar filtros:', error);
-    }
+    const client = document.getElementById('clientFilter').value;
+    const school = document.getElementById('schoolFilter').value;
+    
+    await fetchDataAndUpdateCharts(client, school);
 }

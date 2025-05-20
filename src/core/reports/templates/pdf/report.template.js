@@ -142,10 +142,10 @@ function addProblemDetails(doc, problem, margin, pageWidth, colors) {
         { label: 'Cidade:', value: problem.city },
         { label: 'Escola:', value: problem.school },
         { label: 'Cargo:', value: problem.position },
-        { label: 'Atendente ID:', value: problem.attendant_id || 'Bot' },
-        { label: 'Card Link:', value: problem.card_link || 'Não foi necessário' },
-        { label: 'Card Status:', value: problem.card_status || 'Não foi necessário' },
-        { label: 'Duração:', value: durationText }
+        { label: 'Atendente:', value: problem.attendant_id },
+        { label: 'Card:', value: formatCardLink(problem.card_link) },
+        { label: 'Status Card:', value: problem.card_status },
+        { label: 'Duração:', value: formatDuration(problem.duration_minutes) }
     ];
 
     createDetailGrid(doc, details, margin, doc.y + 15, pageWidth, colors);
@@ -202,6 +202,20 @@ function getStatusBadge(status) {
     };
 
     return statusConfig[status]?.text || status;
+}
+
+function formatCardLink(link) {
+    if (!link || link === 'Não foi necessário') return 'Não foi necessário';
+    return link.length > 30 ? link.substring(0, 27) + '...' : link;
+}
+
+function formatDuration(minutes) {
+    if (!minutes) return 'N/A';
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return hours > 0 ? 
+        mins > 0 ? `${hours}h${mins}min` : `${hours}h` :
+        `${mins}min`;
 }
 
 module.exports = { generatePDFReport };
