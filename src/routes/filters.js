@@ -10,12 +10,19 @@ router.get('/api/filters/getClients', async (req, res) => {
                 [fn('DISTINCT', col('client')), 'client']
             ],
             where: {
-                client: { [Op.ne]: null }
+                client: { 
+                    [Op.ne]: null,
+                    [Op.ne]: '' 
+                }
             },
             order: [['client', 'ASC']]
         });
         
-        res.json(clients.map(row => row.getDataValue('client')));
+        const clientList = clients
+            .map(row => row.getDataValue('client'))
+            .filter(client => client); 
+            
+        res.json(clientList);
     } catch (error) {
         console.error('Erro ao buscar clientes:', error);
         res.status(500).json({ error: 'Erro ao buscar clientes' });
@@ -25,19 +32,27 @@ router.get('/api/filters/getClients', async (req, res) => {
 router.get('/api/filters/getSchools', async (req, res) => {
     try {
         const { client } = req.query;
-        const where = { name: { [Op.ne]: null } };
+        const where = { 
+            name: { 
+                [Op.ne]: null,
+                [Op.ne]: '' 
+            } 
+        };
         
         if (client) {
             where.client = client;
         }
         
         const schools = await School.findAll({
-            attributes: ['name'],
+            attributes: ['id', 'name'],
             where,
             order: [['name', 'ASC']]
         });
         
-        res.json(schools.map(row => row.name));
+        res.json(schools.map(school => ({
+            id: school.id,
+            name: school.name
+        })));
     } catch (error) {
         console.error('Erro ao buscar escolas:', error);
         res.status(500).json({ error: 'Erro ao buscar escolas' });

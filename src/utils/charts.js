@@ -22,6 +22,26 @@ function generateDatasetColors(count) {
     return colors;
 }
 
+function getPieColors(count) {
+    // Paleta de 12 cores distintas (uma para cada mês)
+    const palette = [
+        'rgba(75, 192, 192, 0.8)',
+        'rgba(54, 162, 235, 0.8)',
+        'rgba(255, 206, 86, 0.8)',
+        'rgba(153, 102, 255, 0.8)',
+        'rgba(255, 159, 64, 0.8)',
+        'rgba(255, 99, 132, 0.8)',
+        'rgba(0, 200, 83, 0.8)',
+        'rgba(255, 87, 34, 0.8)',
+        'rgba(0, 188, 212, 0.8)',
+        'rgba(233, 30, 99, 0.8)',
+        'rgba(205, 220, 57, 0.8)',
+        'rgba(121, 85, 72, 0.8)'
+    ];
+    // Repete as cores se count > 12
+    return Array.from({length: count}, (_, i) => palette[i % palette.length]);
+}
+
 function initDailyChart() {
     const ctx = document.getElementById('dailyProblemsChart').getContext('2d');
     dailyProblemsChart = new Chart(ctx, {
@@ -29,9 +49,9 @@ function initDailyChart() {
         data: {
             labels: [],
             datasets: [{
-                label: 'Problemas',
+                label: 'Atendimentos Concluídos',
                 data: [],
-                backgroundColor: 'rgba(75, 192, 192, 0.6)', 
+                backgroundColor: 'rgba(75, 192, 192, 0.6)',
                 borderColor: 'rgba(75, 192, 192, 1)',
                 borderWidth: 1,
                 borderRadius: 5,
@@ -88,20 +108,7 @@ function initMonthlyChart() {
             labels: [],
             datasets: [{
                 data: [],
-                backgroundColor: [
-                    'rgba(255, 99, 132, 0.8)',
-                    'rgba(54, 162, 235, 0.8)',
-                    'rgba(255, 206, 86, 0.8)',
-                    'rgba(75, 192, 192, 0.8)',
-                    'rgba(153, 102, 255, 0.8)',
-                    'rgba(255, 159, 64, 0.8)',
-                    'rgba(255, 0, 0, 0.8)',
-                    'rgba(0, 255, 0, 0.8)',
-                    'rgba(0, 0, 255, 0.8)',
-                    'rgba(128, 0, 128, 0.8)',
-                    'rgba(0, 128, 128, 0.8)',
-                    'rgba(128, 128, 0, 0.8)'
-                ]
+                backgroundColor: []
             }]
         },
         options: {
@@ -109,7 +116,10 @@ function initMonthlyChart() {
             maintainAspectRatio: false,
             plugins: {
                 legend: {
-                    position: 'bottom'
+                    position: 'bottom',
+                    labels: {
+                        color: '#E4E6EF'
+                    }
                 }
             }
         }
@@ -119,32 +129,25 @@ function initMonthlyChart() {
 async function updateChartData(weeklyData, monthlyData) {
     if (weeklyData) {
         const staticDays = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'];
-        const today = new Date();
-        const dayOfWeek = today.getDay(); 
-
         
-        if (dayOfWeek === 0 || dayOfWeek === 6) {
-            dailyProblemsChart.data.labels = staticDays;
-            dailyProblemsChart.data.datasets[0].data = new Array(5).fill(0);
-        } else {
-            
-            const dataMap = new Map();
-            weeklyData.labels.forEach((day, index) => {
-                dataMap.set(day, weeklyData.data[index]);
-            });
+        const data = weeklyData.data.map(d => d.completed);
 
-            dailyProblemsChart.data.labels = staticDays;
-            dailyProblemsChart.data.datasets[0].data = staticDays.map(day => 
-                dataMap.get(day) || 0
-            );
-        }
-
+        dailyProblemsChart.data.labels = staticDays;
+        dailyProblemsChart.data.datasets[0].data = data;
         dailyProblemsChart.update('none');
     }
 
     if (monthlyData) {
-        monthlyProblemsChart.data.labels = monthlyData.labels;
-        monthlyProblemsChart.data.datasets[0].data = monthlyData.data;
+        const nonZeroMonths = monthlyData.data
+            .map((d, i) => ({
+                label: monthlyData.labels[i],
+                value: d.completed
+            }))
+            .filter(d => d.value > 0);
+
+        monthlyProblemsChart.data.labels = nonZeroMonths.map(d => d.label);
+        monthlyProblemsChart.data.datasets[0].data = nonZeroMonths.map(d => d.value);
+        monthlyProblemsChart.data.datasets[0].backgroundColor = getPieColors(nonZeroMonths.length);
         monthlyProblemsChart.update('none');
     }
 }

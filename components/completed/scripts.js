@@ -97,7 +97,7 @@ function formatText(text, type = 'default') {
         // Split the text into words
         return text.split(' ').map(word => {
             // Keep known acronyms in uppercase
-            if (/^(EMEF|EMEIF|EE|CEI|CMEI|EM)$/i.test(word)) {
+            if (/^(EMEF|EMEIF||EMEIEF|EE|CEI|CMEI|EM)$/i.test(word)) {
                 return word.toUpperCase();
             }
             // Regular word capitalization
@@ -239,23 +239,26 @@ async function loadFilters() {
             filterPosition.appendChild(option);
         });
 
-        // Load attendants
+        // Load attendants - corrigido para não duplicar
         const attendantsResponse = await fetch('http://localhost:3000/api/statistics/getCompletedAttendances');
         const attendances = await attendantsResponse.json();
-        const uniqueAttendants = [...new Set(attendances
-            .filter(a => a.attendant)
-            .map(a => ({ id: a.attendant.id, name: a.attendant.name }))
-        )];
+        
+        // Usa Map para garantir atendentes únicos por ID
+        const uniqueAttendants = new Map();
+        attendances.forEach(att => {
+            if (att.attendant && att.attendant.id) {
+                uniqueAttendants.set(att.attendant.id, att.attendant);
+            }
+        });
 
         const filterAttendant = document.getElementById('filterAttendant');
         filterAttendant.innerHTML = '<option value="">Todos os atendentes</option><option value="Bot">Bot</option>';
+        
         uniqueAttendants.forEach(attendant => {
-            if (attendant.id && attendant.name) {
-                const option = document.createElement('option');
-                option.value = attendant.id;
-                option.textContent = formatText(attendant.name);
-                filterAttendant.appendChild(option);
-            }
+            const option = document.createElement('option');
+            option.value = attendant.id;
+            option.textContent = formatText(attendant.name);
+            filterAttendant.appendChild(option);
         });
     } catch (error) {
         console.error('Erro ao carregar filtros:', error);

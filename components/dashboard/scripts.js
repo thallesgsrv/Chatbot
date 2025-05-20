@@ -1,41 +1,35 @@
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // Theme initialization
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark') {
+        document.body.classList.add('dark-theme');
+        const icon = document.querySelector('.theme-toggle i');
+        const text = document.querySelector('.theme-toggle span');
+        icon.classList.replace('fa-moon', 'fa-sun');
+        text.textContent = 'Modo Claro';
+    }
+
+    // Initialize components
     Sidebar.init();
     Charts.init();
-    loadCities();
-    loadClients();
-    fetchDataAndUpdateCharts('');
+    await loadClients();
     
-    const observer = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-            if (mutation.attributeName === 'class') {
-                Charts.updateTheme(document.body.classList.contains('dark-theme'));
-            }
-        });
+    // Event listeners
+    document.getElementById('clientFilter').addEventListener('change', async (e) => {
+        await loadSchools(e.target.value);
     });
-
-    observer.observe(document.body, {
-        attributes: true
-    });
-
-    document.getElementById('cityFilter').addEventListener('change', async (e) => {
-        const city = e.target.value;
-        await loadSchools(city);
-        const filterBtn = document.querySelector('.apply-filter-btn');
-        filterBtn.innerHTML = '<i class="fas fa-filter"></i> Aplicar Filtros';
-        filterBtn.disabled = false;
-    });
-
-    document.getElementById('schoolFilter').addEventListener('change', () => {
-        const filterBtn = document.querySelector('.apply-filter-btn');
-        filterBtn.innerHTML = '<i class="fas fa-filter"></i> Aplicar Filtros';
-        filterBtn.disabled = false;
-    });
+    
+    document.querySelector('.apply-filter-btn').addEventListener('click', applyFilters);
+    document.querySelector('.report-container button').onclick = showReportOverlay;
+    
+    // Load initial data
+    await fetchDataAndUpdateCharts();
 });
 
-async function fetchDataAndUpdateCharts(city = '', school = '') {
+async function fetchDataAndUpdateCharts(client = '', school = '') {
     try {
         const params = new URLSearchParams();
-        if (city) params.append('city', city);
+        if (client) params.append('client', client);
         if (school) params.append('school', school);
         
         const response = await fetch(`http://localhost:3000/api/statistics/getChartData?${params}`);
@@ -113,53 +107,25 @@ function generateReport() {
         });
 }
 
-document.querySelector('.report-container button').onclick = showReportOverlay;
-
 function toggleTheme() {
     Sidebar.toggleTheme();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'dark') {
-        document.body.classList.add('dark-theme');
-        const icon = document.querySelector('.theme-toggle i');
-        const text = document.querySelector('.theme-toggle span');
-        icon.classList.replace('fa-moon', 'fa-sun');
-        text.textContent = 'Modo Claro';
-    }
-});
-
-async function loadCities() {
-    try {
-        const response = await fetch('http://localhost:3000/api/filters/getCities');
-        const cities = await response.json();
-        const cityFilter = document.getElementById('cityFilter');
-        
-        cities.forEach(city => {
-            const option = document.createElement('option');
-            option.value = city;
-            option.textContent = city;
-            cityFilter.appendChild(option);
-        });
-
-    } catch (error) {
-        console.error('Erro ao carregar cidades:', error);
-    }
-}
-
 async function loadClients() {
     try {
-        const response = await fetch('http://localhost:3000/api/filters/getClients');
-        const clients = await response.json();
-        const clientFilter = document.getElementById('clientFilter');
+        const response = await fetch('/api/filters/getClients');
+        const data = await response.json();
         
+        const clientFilter = document.getElementById('clientFilter');
         clientFilter.innerHTML = '<option value="">Todos os clientes</option>';
-        clients.forEach(client => {
-            const option = document.createElement('option');
-            option.value = client;
-            option.textContent = formatText(client);
-            clientFilter.appendChild(option);
+        
+        data.forEach(client => {
+            if (client) {
+                const option = document.createElement('option');
+                option.value = client;
+                option.textContent = client;
+                clientFilter.appendChild(option);
+            }
         });
     } catch (error) {
         console.error('Erro ao carregar clientes:', error);
@@ -168,19 +134,18 @@ async function loadClients() {
 
 async function loadSchools(client = '') {
     try {
-        const url = client 
-            ? `http://localhost:3000/api/filters/getSchools?client=${encodeURIComponent(client)}`
-            : 'http://localhost:3000/api/filters/getSchools';
-            
-        const response = await fetch(url);
-        const schools = await response.json();
         const schoolFilter = document.getElementById('schoolFilter');
-        
         schoolFilter.innerHTML = '<option value="">Todas as escolas</option>';
+        
+        if (!client) return;
+        
+        const response = await fetch(`/api/filters/getSchools?client=${encodeURIComponent(client)}`);
+        const schools = await response.json();
+        
         schools.forEach(school => {
             const option = document.createElement('option');
             option.value = school.id;
-            option.textContent = formatText(school.name);
+            option.textContent = school.name;
             schoolFilter.appendChild(option);
         });
     } catch (error) {
@@ -188,64 +153,9 @@ async function loadSchools(client = '') {
     }
 }
 
-function showNotification(title, message) {
-    if (!('Notification' in window)) return;
-
-    const options = {
-        body: message,
-        icon: './assets/notification-icon.png',
-        silent: false
-    };
-
-    if (Notification.permission === 'granted') {
-        new Notification(title, options);
-    } else if (Notification.permission !== 'denied') {
-        Notification.requestPermission().then(permission => {
-            if (permission === 'granted') {
-                new Notification(title, options);
-            }
-        });
-    }
-}
-
 async function applyFilters() {
-    const filterBtn = document.querySelector('.apply-filter-btn');
-    const clientFilter = document.getElementById('clientFilter');
-    const schoolFilter = document.getElementById('schoolFilter');
+    const client = document.getElementById('clientFilter').value;
+    const school = document.getElementById('schoolFilter').value;
     
-    filterBtn.disabled = true;
-    filterBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Aplicando...';
-    
-    try {
-        const params = new URLSearchParams({
-            client: clientFilter.value,
-            school: schoolFilter.value
-        });
-        
-        await fetchDataAndUpdateCharts(params.toString());
-        
-        filterBtn.innerHTML = '<i class="fas fa-check"></i> Aplicado';
-        setTimeout(() => {
-            filterBtn.innerHTML = '<i class="fas fa-filter"></i> Aplicar Filtros';
-            filterBtn.disabled = false;
-        }, 1000);
-    } catch (error) {
-        console.error('Erro ao aplicar filtros:', error);
-        filterBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Erro';
-        setTimeout(() => {
-            filterBtn.innerHTML = '<i class="fas fa-filter"></i> Aplicar Filtros';
-            filterBtn.disabled = false;
-        }, 1000);
-    }
+    await fetchDataAndUpdateCharts(client, school);
 }
-
-// Inicialização
-document.addEventListener('DOMContentLoaded', () => {
-    loadClients();
-    Charts.init();
-    fetchDataAndUpdateCharts();
-    
-    document.getElementById('clientFilter').addEventListener('change', (e) => {
-        loadSchools(e.target.value);
-    });
-});

@@ -11,130 +11,133 @@ router.get('/api/statistics/getChartData', async (req, res) => {
     try {
         const { client, school } = req.query;
         let where = {
-            status: { [Op.ne]: null }
+            status: 'COMPLETED',
+            description: { [Op.ne]: null }
         };
-        
-        if (client) {
-            where['$createcall.school.client$'] = client;
-        }
-        
-        if (school) {
-            where['$createcall.school.id$'] = school;
+        let createCallWhere = {};
+        if (client) createCallWhere['$school.client$'] = client;
+        if (school) createCallWhere['$school.id$'] = school;
+
+        // Gera datas de segunda a sexta da semana local
+        const today = new Date();
+        const weekStart = new Date(today);
+        weekStart.setDate(today.getDate() - today.getDay() + 1); // Segunda
+        weekStart.setHours(0, 0, 0, 0);
+        const weekDates = [];
+        for (let i = 0; i < 5; i++) {
+            const d = new Date(weekStart);
+            d.setDate(weekStart.getDate() + i);
+            weekDates.push(d.toISOString().slice(0, 10)); // yyyy-mm-dd
         }
 
-        const monthlyData = await Call.findAll({
+        // Busca atendimentos concluídos da semana
+        const weeklyDataRaw = await Call.findAll({
             attributes: [
-                [fn('date_part', 'month', col('createcall.date')), 'month'],
-                [fn('count', '*'), 'count'],
-                [fn('count', literal("CASE WHEN status = 'COMPLETED' THEN 1 END")), 'completed'],
-                [fn('count', literal("CASE WHEN status = 'PENDING' THEN 1 END")), 'pending']
-            ],
-            where,
-            include: [
-                {
-                    model: CreateCall,
-                    as: 'createcall',
-                    required: true,
-                    include: [{
-                        model: School,
-                        as: 'school',
-                        required: true
-                    }]
-                }
-            ],
-            group: [fn('date_part', 'month', col('createcall.date'))],
-            order: [[fn('date_part', 'month', col('createcall.date')), 'ASC']]
-        });
-
-        // Weekly data with all necessary fields
-        const startOfWeek = new Date();
-        startOfWeek.setDate(startOfWeek.getDate() - 7);
-        
-        const weeklyData = await Call.findAll({
-            attributes: [
-                [fn('date', col('createcall.date')), 'date'],
-                [fn('count', '*'), 'count']
+                [literal('DATE("createcall"."date")'), 'date'],
+                [fn('COUNT', '*'), 'count']
             ],
             where: {
                 ...where,
                 '$createcall.date$': {
-                    [Op.between]: [startOfWeek, new Date()]
+                    [Op.gte]: weekDates[0] + 'T00:00:00.000Z',
+                    [Op.lte]: weekDates[4] + 'T23:59:59.999Z'
                 }
             },
-            include: [
-                {
-                    model: CreateCall,
-                    attributes: []
-                },
-                {
+            include: [{
+                model: CreateCall,
+                as: 'createcall',
+                required: true,
+                attributes: [],
+                where: createCallWhere,
+                include: [{
                     model: School,
+                    as: 'school',
+                    required: true,
                     attributes: []
-                }
+                }]
+            }],
+            group: [literal('DATE("createcall"."date")')],
+            order: [literal('DATE("createcall"."date") ASC')]
+        });
+
+        // Mapeia os resultados para um objeto {date: count}
+        const weeklyCountMap = {};
+        weeklyDataRaw.forEach(row => {
+            weeklyCountMap[row.getDataValue('date')] = parseInt(row.getDataValue('count'));
+        });
+
+        // Monta o array final para o gráfico
+        const weeklyLabels = weekDates;
+        const weeklyData = weekDates.map(dateStr => ({
+            completed: weeklyCountMap[dateStr] || 0
+        }));
+
+        // Dados mensais
+        const monthlyData = await Call.findAll({
+            attributes: [
+                [literal('EXTRACT(MONTH FROM "createcall"."date")'), 'month'],
+                [fn('COUNT', '*'), 'count']
             ],
-            group: [fn('date', col('createcall.date'))],
-            order: [[col('createcall.date'), 'ASC']]
-        });
-
-        // Get all schools and clients for filters
-        const schools = await School.findAll({
-            attributes: ['id', 'name', 'client', 'city'],
-            order: [['name', 'ASC']]
-        });
-        const clients = await School.findAll({
-            attributes: [[fn('DISTINCT', col('client')), 'client']],
-            where: { client: { [Op.ne]: null } },
-            order: [['client', 'ASC']]
-        });
-
-        // Get all attendants for filters
-        const attendants = await Attendant.findAll({
-            attributes: ['id', 'name'],
-            order: [['name', 'ASC']]
+            where,
+            include: [{
+                model: CreateCall,
+                as: 'createcall',
+                required: true,
+                attributes: [],
+                where: createCallWhere,
+                include: [{
+                    model: School,
+                    as: 'school',
+                    required: true,
+                    attributes: []
+                }]
+            }],
+            group: [literal('EXTRACT(MONTH FROM "createcall"."date")')],
+            order: [literal('EXTRACT(MONTH FROM "createcall"."date") ASC')]
         });
 
         const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 
                           'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-        const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+        
+        const clients = await School.findAll({
+            attributes: [[fn('DISTINCT', col('client')), 'client']],
+            order: [['client', 'ASC']]
+        });
+
+        const schools = await School.findAll({
+            attributes: ['id', 'name', 'client'],
+            where: client ? { client } : {},
+            order: [['name', 'ASC']]
+        });
 
         const processed = {
             weekly: {
-                labels: weeklyData.map(row => {
-                    const date = new Date(row.getDataValue('date'));
-                    return weekDays[date.getDay()] || '';
-                }),
-                data: weeklyData.map(row => ({
-                    total: parseInt(row.getDataValue('count')),
-                    date: row.getDataValue('date')
-                }))
+                labels: weeklyLabels, 
+                data: weeklyData
             },
             monthly: {
                 labels: monthNames,
-                data: Array(12).fill(0).map((_, index) => {
-                    const monthData = monthlyData.find(m => parseInt(m.getDataValue('month')) === index + 1);
+                data: Array(12).fill(0).map((_, idx) => {
+                    const monthData = monthlyData.find(m => 
+                        parseInt(m.getDataValue('month')) === idx + 1
+                    );
                     return {
-                        total: monthData ? parseInt(monthData.getDataValue('count')) : 0,
-                        completed: monthData ? parseInt(monthData.getDataValue('completed')) : 0,
-                        pending: monthData ? parseInt(monthData.getDataValue('pending')) : 0,
-                        month: index + 1
+                        completed: monthData ? parseInt(monthData.getDataValue('count')) : 0
                     };
                 })
             },
             summary: {
-                totalCalls: monthlyData.reduce((sum, item) => sum + parseInt(item.getDataValue('count')), 0),
-                completedCalls: monthlyData.reduce((sum, item) => sum + parseInt(item.getDataValue('completed')), 0),
-                pendingCalls: monthlyData.reduce((sum, item) => sum + parseInt(item.getDataValue('pending')), 0)
+                completedCalls: monthlyData.reduce((sum, row) => 
+                    sum + parseInt(row.getDataValue('count')), 0
+                )
             },
             filters: {
+                clients: clients.map(c => c.getDataValue('client')),
                 schools: schools.map(s => ({
                     id: s.id,
                     name: s.name,
-                    client: s.client,
-                    city: s.city
-                })),
-                clients: clients.map(c => c.getDataValue('client')),
-                attendants: attendants.map(a => ({
-                    id: a.id,
-                    name: a.name
+                    client: s.client
                 }))
             }
         };
