@@ -14,20 +14,21 @@ router.get('/api/statistics/getChartData', async (req, res) => {
             status: 'COMPLETED',
             description: { [Op.ne]: null }
         };
-        let createCallWhere = {};
-        if (client) createCallWhere['$school.client$'] = client;
-        if (school) createCallWhere['$school.id$'] = school;
+        
+        let schoolWhere = {};
+        if (client) schoolWhere.client = client;
+        if (school) schoolWhere.id = school;
 
         // Gera datas de segunda a sexta da semana local
         const today = new Date();
         const weekStart = new Date(today);
-        weekStart.setDate(today.getDate() - today.getDay() + 1); // Segunda
+        weekStart.setDate(today.getDate() - today.getDay() + 1); 
         weekStart.setHours(0, 0, 0, 0);
         const weekDates = [];
         for (let i = 0; i < 5; i++) {
             const d = new Date(weekStart);
             d.setDate(weekStart.getDate() + i);
-            weekDates.push(d.toISOString().slice(0, 10)); // yyyy-mm-dd
+            weekDates.push(d.toISOString().slice(0, 10));
         }
 
         // Busca atendimentos concluídos da semana
@@ -48,12 +49,12 @@ router.get('/api/statistics/getChartData', async (req, res) => {
                 as: 'createcall',
                 required: true,
                 attributes: [],
-                where: createCallWhere,
                 include: [{
                     model: School,
                     as: 'school',
                     required: true,
-                    attributes: []
+                    attributes: [],
+                    where: schoolWhere
                 }]
             }],
             group: [literal('DATE("createcall"."date")')],
@@ -84,12 +85,12 @@ router.get('/api/statistics/getChartData', async (req, res) => {
                 as: 'createcall',
                 required: true,
                 attributes: [],
-                where: createCallWhere,
                 include: [{
                     model: School,
                     as: 'school',
                     required: true,
-                    attributes: []
+                    attributes: [],
+                    where: schoolWhere
                 }]
             }],
             group: [literal('EXTRACT(MONTH FROM "createcall"."date")')],

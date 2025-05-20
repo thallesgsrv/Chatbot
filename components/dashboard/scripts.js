@@ -26,11 +26,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     await fetchDataAndUpdateCharts();
 });
 
+function formatName(name) {
+    if (!name) return '';
+    return name
+        .toLowerCase()
+        .split(' ')
+        .map(word => {
+            // Manter siglas de escolas em maiúsculo
+            if (/^(EMEF|EMEIF|EMEIEF|EE|CEI|CMEI|EM)$/i.test(word)) {
+                return word.toUpperCase();
+            }
+            return word.charAt(0).toUpperCase() + word.slice(1);
+        })
+        .join(' ');
+}
+
 async function fetchDataAndUpdateCharts(client = '', school = '') {
     try {
         const params = new URLSearchParams();
         if (client) params.append('client', client);
         if (school) params.append('school', school);
+        
+        console.log('Buscando dados com filtros:', params.toString());
         
         const response = await fetch(`http://localhost:3000/api/statistics/getChartData?${params}`);
         if (!response.ok) throw new Error('Erro na resposta do servidor');
@@ -113,8 +130,11 @@ function toggleTheme() {
 
 async function loadClients() {
     try {
-        const response = await fetch('/api/filters/getClients');
+        const response = await fetch('http://localhost:3000/api/filters/getClients');
+        if (!response.ok) throw new Error('Erro na resposta do servidor');
+        
         const data = await response.json();
+        console.log('Clientes carregados:', data);
         
         const clientFilter = document.getElementById('clientFilter');
         clientFilter.innerHTML = '<option value="">Todos os clientes</option>';
@@ -123,7 +143,7 @@ async function loadClients() {
             if (client) {
                 const option = document.createElement('option');
                 option.value = client;
-                option.textContent = client;
+                option.textContent = formatName(client);
                 clientFilter.appendChild(option);
             }
         });
@@ -139,13 +159,16 @@ async function loadSchools(client = '') {
         
         if (!client) return;
         
-        const response = await fetch(`/api/filters/getSchools?client=${encodeURIComponent(client)}`);
+        const response = await fetch(`http://localhost:3000/api/filters/getSchools?client=${encodeURIComponent(client)}`);
+        if (!response.ok) throw new Error('Erro na resposta do servidor');
+        
         const schools = await response.json();
+        console.log('Escolas carregadas:', schools);
         
         schools.forEach(school => {
             const option = document.createElement('option');
             option.value = school.id;
-            option.textContent = school.name;
+            option.textContent = formatName(school.name); // Usando formatName aqui
             schoolFilter.appendChild(option);
         });
     } catch (error) {
@@ -154,8 +177,20 @@ async function loadSchools(client = '') {
 }
 
 async function applyFilters() {
-    const client = document.getElementById('clientFilter').value;
-    const school = document.getElementById('schoolFilter').value;
-    
-    await fetchDataAndUpdateCharts(client, school);
+    try {
+        const client = document.getElementById('clientFilter').value;
+        const school = document.getElementById('schoolFilter').value;
+        
+        console.log('Aplicando filtros:', { client, school });
+        
+        const filters = {};
+        if (client) filters.client = client;
+        if (school) filters.school = school;
+        
+        await fetchDataAndUpdateCharts(client, school);
+        
+        console.log('Filtros aplicados com sucesso');
+    } catch (error) {
+        console.error('Erro ao aplicar filtros:', error);
+    }
 }

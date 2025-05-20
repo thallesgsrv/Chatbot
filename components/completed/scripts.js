@@ -89,9 +89,6 @@ function calculateDuration(durationMinutes) {
 function formatText(text, type = 'default') {
     if (!text) return '';
     
-    // Don't format descriptions
-    if (type === 'description') return text;
-    
     // Special handling for school names
     if (type === 'school') {
         // Split the text into words

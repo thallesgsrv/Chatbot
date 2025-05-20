@@ -21,7 +21,8 @@ router.get('/api/filters/getClients', async (req, res) => {
         const clientList = clients
             .map(row => row.getDataValue('client'))
             .filter(client => client); 
-            
+        
+        console.log('Clientes encontrados:', clientList);    
         res.json(clientList);
     } catch (error) {
         console.error('Erro ao buscar clientes:', error);
@@ -32,6 +33,8 @@ router.get('/api/filters/getClients', async (req, res) => {
 router.get('/api/filters/getSchools', async (req, res) => {
     try {
         const { client } = req.query;
+        console.log('Client recebido:', client);
+        
         const where = { 
             name: { 
                 [Op.ne]: null,
@@ -44,15 +47,19 @@ router.get('/api/filters/getSchools', async (req, res) => {
         }
         
         const schools = await School.findAll({
-            attributes: ['id', 'name'],
+            attributes: ['id', 'name', 'client'],
             where,
             order: [['name', 'ASC']]
         });
         
-        res.json(schools.map(school => ({
+        const schoolList = schools.map(school => ({
             id: school.id,
-            name: school.name
-        })));
+            name: school.name,
+            client: school.client
+        }));
+        
+        console.log('Escolas encontradas:', schoolList);
+        res.json(schoolList);
     } catch (error) {
         console.error('Erro ao buscar escolas:', error);
         res.status(500).json({ error: 'Erro ao buscar escolas' });
