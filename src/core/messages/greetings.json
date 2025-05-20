@@ -1,4 +1,9 @@
 {
+    "guidelines": "Olá! Para utilizar esse canal de atendimento, você deve concordar com a nossa politica de privacidade e termos de uso, que está disponível no link: https://www.example.com/termos-de-uso",
+    "aceptedguidelines": "Você aceita os termos de política e privacidade?(sim/não)",
+    "guidelinesRejected": "Infelizmente não podemos prosseguir sem a aceitação dos termos. Se desejar tentar novamente, por favor inicie uma nova conversa.",
+    "guidelinesInvalid": "Por favor, responda com 'sim' ou 'não'.",
+
     "welcome": [
         "Olá! Para iniciar o atendimento, por favor digite seu CPF ou número de matrícula:",
         "Bem-vindo! Para começar, preciso que você informe seu CPF ou matrícula:",

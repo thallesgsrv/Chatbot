@@ -35,15 +35,40 @@ class Screening {
 
     async startScreening(conn, chatId) {
         try {
-            
             this.clearUserTopic(chatId);
             if (this.problemManager) {
                 this.problemManager.clearUserTopic(chatId);
             }
             
-          
             this.sharedState.removeChatFromHumanAttended(chatId);
 
+            // Inicia com guidelines ao invés do welcome
+            const message = greetings.guidelines;
+            await conn.client.sendMessage({
+                to: chatId,
+                body: message,
+                options: { type: 'sendText' }
+            });
+
+            // Pergunta se aceita os termos
+            await conn.client.sendMessage({
+                to: chatId,
+                body: greetings.aceptedguidelines,
+                options: { type: 'sendText' }
+            });
+
+            this.userCurrentTopic[chatId] = { state: 'awaitingPrivacyConfirmation' };
+        } catch (error) {
+            console.error('Error in startScreening:', error);
+            throw error;
+        }
+    }
+
+    async handlePrivacyConfirmation(conn, chatId, messageText) {
+        const response = messageText.toLowerCase();
+        
+        if (response === 'sim') {
+            // Inicia a triagem normal
             const message = this.getRandomWelcomeMessage();
             await conn.client.sendMessage({
                 to: chatId,
@@ -51,9 +76,19 @@ class Screening {
                 options: { type: 'sendText' }
             });
             this.userCurrentTopic[chatId] = { state: 'awaitingCpf' };
-        } catch (error) {
-            console.error('Error in startScreening:', error);
-            throw error;
+        } else if (response === 'não' || response === 'nao') {
+            await conn.client.sendMessage({
+                to: chatId,
+                body: greetings.guidelinesRejected,
+                options: { type: 'sendText' }
+            });
+            this.clearUserTopic(chatId);
+        } else {
+            await conn.client.sendMessage({
+                to: chatId,
+                body: greetings.guidelinesInvalid,
+                options: { type: 'sendText' }
+            });
         }
     }
 

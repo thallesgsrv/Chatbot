@@ -723,6 +723,9 @@ async function handleUserMessage(conn, chatId, messageText, io) {
 
 async function handleScreeningState(conn, chatId, messageText, screeningTopic, io) {
     switch (screeningTopic.state) {
+        case 'awaitingPrivacyConfirmation':
+            await screening.handlePrivacyConfirmation(conn, chatId, messageText);
+            break;
         case 'awaitingCpf':
             await screening.handleCpfInput(conn, chatId, messageText, io);
             break;
