@@ -128,6 +128,81 @@ router.get('/api/statistics/getChartData', async (req, res) => {
                     };
                 })
             },
+            feedback: {
+                labels: ['Muito satisfeito', 'Satisfeito', 'Neutro', 'Insatisfeito', 'Muito insatisfeito'],
+                data: [
+                    await Call.count({ 
+                        where: { ...where, rating: 5 },
+                        include: [{
+                            model: CreateCall,
+                            as: 'createcall',
+                            required: true,
+                            include: [{
+                                model: School,
+                                as: 'school',
+                                required: true,
+                                where: schoolWhere
+                            }]
+                        }]
+                    }),
+                    await Call.count({ 
+                        where: { ...where, rating: 4 },
+                        include: [{
+                            model: CreateCall,
+                            as: 'createcall',
+                            required: true,
+                            include: [{
+                                model: School,
+                                as: 'school',
+                                required: true,
+                                where: schoolWhere
+                            }]
+                        }]
+                    }),
+                    await Call.count({ 
+                        where: { ...where, rating: 3 },
+                        include: [{
+                            model: CreateCall,
+                            as: 'createcall',
+                            required: true,
+                            include: [{
+                                model: School,
+                                as: 'school',
+                                required: true,
+                                where: schoolWhere
+                            }]
+                        }]
+                    }),
+                    await Call.count({ 
+                        where: { ...where, rating: 2 },
+                        include: [{
+                            model: CreateCall,
+                            as: 'createcall',
+                            required: true,
+                            include: [{
+                                model: School,
+                                as: 'school',
+                                required: true,
+                                where: schoolWhere
+                            }]
+                        }]
+                    }),
+                    await Call.count({ 
+                        where: { ...where, rating: 1 },
+                        include: [{
+                            model: CreateCall,
+                            as: 'createcall',
+                            required: true,
+                            include: [{
+                                model: School,
+                                as: 'school',
+                                required: true,
+                                where: schoolWhere
+                            }]
+                        }]
+                    })
+                ]
+            },
             summary: {
                 completedCalls: monthlyData.reduce((sum, row) => 
                     sum + parseInt(row.getDataValue('count')), 0
@@ -214,7 +289,7 @@ router.get('/api/statistics/getCompletedAttendances', async (req, res) => {
             description: att.description,
             school: att.createcall && att.createcall.school ? {
                 id: att.createcall.school.id,
-                name: att.createcall.school.name,  // Send original name without modifications
+                name: att.createcall.school.name, 
                 client: att.createcall.school.client
             } : null,
             client: att.createcall && att.createcall.school ? att.createcall.school.client : null,

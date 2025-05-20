@@ -1,9 +1,11 @@
 let dailyProblemsChart;
 let monthlyProblemsChart;
+let feedbackChart;
 
 function initCharts() {
     initDailyChart();
     initMonthlyChart();
+    initFeedbackChart();
 }
 
 function generateDatasetColors(count) {
@@ -67,15 +69,15 @@ function initDailyChart() {
                     ticks: {
                         stepSize: 1,
                         precision: 0,
-                        color: '#E4E6EF'
+                        color: document.body.classList.contains('dark-theme') ? '#FFFFFF' : '#000000'
                     },
                     grid: {
-                        color: 'rgba(255, 255, 255, 0.1)'
+                        color: 'rgba(0, 0, 0, 0.1)'
                     }
                 },
                 x: {
                     ticks: {
-                        color: '#E4E6EF'
+                        color: document.body.classList.contains('dark-theme') ? '#FFFFFF' : '#000000'
                     },
                     grid: {
                         display: false
@@ -91,7 +93,7 @@ function initDailyChart() {
                     callbacks: {
                         label: function(context) {
                             const value = context.parsed.y;
-                            return value === 1 ? '1 problema' : `${value} problemas`;
+                            return `Atendimentos concluídos: ${value}`;
                         }
                     }
                 }
@@ -118,7 +120,15 @@ function initMonthlyChart() {
                 legend: {
                     position: 'bottom',
                     labels: {
-                        color: '#E4E6EF'
+                        color: document.body.classList.contains('dark-theme') ? '#FFFFFF' : '#000000',
+                        padding: 10
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `Atendimentos concluídos ${context.label}: ${context.parsed}`;
+                        }
                     }
                 }
             }
@@ -126,7 +136,50 @@ function initMonthlyChart() {
     });
 }
 
-async function updateChartData(weeklyData, monthlyData) {
+function initFeedbackChart() {
+    const ctx = document.getElementById('feedbackChart').getContext('2d');
+    feedbackChart = new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: [],
+            datasets: [{
+                data: [],
+                backgroundColor: [
+                    'rgba(75, 192, 192, 0.8)',   // Verde escuro - Muito satisfeito
+                    'rgba(102, 187, 106, 0.8)',  // Verde claro - Satisfeito
+                    'rgba(255, 206, 86, 0.8)',   // Amarelo - Neutro
+                    'rgba(255, 152, 0, 0.8)',    // Laranja - Insatisfeito
+                    'rgba(244, 67, 54, 0.8)'     // Vermelho - Muito insatisfeito
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        color: document.body.classList.contains('dark-theme') ? '#FFFFFF' : '#000000',
+                        padding: 10,
+                        font: {
+                            size: 12
+                        }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `${context.label}: ${context.parsed} avaliações`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+async function updateChartData(weeklyData, monthlyData, feedbackData) {
     if (weeklyData) {
         const staticDays = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'];
         
@@ -150,6 +203,12 @@ async function updateChartData(weeklyData, monthlyData) {
         monthlyProblemsChart.data.datasets[0].backgroundColor = getPieColors(nonZeroMonths.length);
         monthlyProblemsChart.update('none');
     }
+
+    if (feedbackData) {
+        feedbackChart.data.labels = feedbackData.labels;
+        feedbackChart.data.datasets[0].data = feedbackData.data;
+        feedbackChart.update('none');
+    }
 }
 
 function updateChartsTheme(isDark) {
@@ -157,19 +216,26 @@ function updateChartsTheme(isDark) {
         { bg: 'rgba(75, 192, 192, 0.6)', border: 'rgba(75, 192, 192, 1)' } : 
         { bg: 'rgba(54, 162, 235, 0.5)', border: 'rgba(54, 162, 235, 1)' };
     
-    const textColor = isDark ? '#E4E6EF' : '#666';
+    const textColor = isDark ? '#FFFFFF' : '#000000';
     const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
 
+    // Update daily chart
     dailyProblemsChart.data.datasets[0].backgroundColor = chartColor.bg;
     dailyProblemsChart.data.datasets[0].borderColor = chartColor.border;
     dailyProblemsChart.options.scales.y.ticks.color = textColor;
     dailyProblemsChart.options.scales.x.ticks.color = textColor;
     dailyProblemsChart.options.scales.y.grid.color = gridColor;
     
+    // Update monthly chart
     monthlyProblemsChart.options.plugins.legend.labels.color = textColor;
     
+    // Update feedback chart
+    feedbackChart.options.plugins.legend.labels.color = textColor;
+    
+    // Apply updates
     dailyProblemsChart.update();
     monthlyProblemsChart.update();
+    feedbackChart.update();
 }
 
 window.Charts = {

@@ -36,11 +36,11 @@ async function fetchDataAndUpdateCharts(client = '', school = '') {
         if (!response.ok) throw new Error('Erro na resposta do servidor');
         
         const data = await response.json();
-        if (!data || !data.weekly || !data.monthly) {
+        if (!data || !data.weekly || !data.monthly || !data.feedback) {
             throw new Error('Dados inválidos recebidos');
         }
 
-        Charts.updateData(data.weekly, data.monthly);
+        Charts.updateData(data.weekly, data.monthly, data.feedback);
         Charts.updateTheme(document.body.classList.contains('dark-theme'));
     } catch (error) {
         console.error('Erro ao buscar dados dos gráficos:', error);
