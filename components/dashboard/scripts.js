@@ -26,6 +26,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     await fetchDataAndUpdateCharts();
 });
 
+function formatName(name) {
+    if (!name) return '';
+    return name
+        .toLowerCase()
+        .split(' ')
+        .map(word => {
+            // Manter siglas de escolas em maiúsculo
+            if (/^(EMEF|EMEIF|EMEIEF|EE|CEI|CMEI|EM)$/i.test(word)) {
+                return word.toUpperCase();
+            }
+            return word.charAt(0).toUpperCase() + word.slice(1);
+        })
+        .join(' ');
+}
+
 async function fetchDataAndUpdateCharts(client = '', school = '') {
     try {
         const params = new URLSearchParams();
@@ -132,7 +147,7 @@ async function loadClients() {
             if (client) {
                 const option = document.createElement('option');
                 option.value = client;
-                option.textContent = client;
+                option.textContent =formatName(client);
                 clientFilter.appendChild(option);
             }
         });
@@ -157,7 +172,7 @@ async function loadSchools(client = '') {
         schools.forEach(school => {
             const option = document.createElement('option');
             option.value = school.id;
-            option.textContent = school.name;
+            option.textContent = formatName(school.name);
             schoolFilter.appendChild(option);
         });
     } catch (error) {
