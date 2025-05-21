@@ -25,6 +25,7 @@
             "package.json",
             "components/**/*",
             "node_modules/**/*",
+            "build/**/*",
             "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
             "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
             "!**/node_modules/.bin",
@@ -102,7 +103,6 @@
         "qrcode": "^1.5.4",
         "sequelize": "^6.37.7",
         "socket.io": "^4.8.1",
-        "socket.io-client": "^4.8.1",
-        "sqlite3": "^5.1.7"
+        "socket.io-client": "^4.8.1"
     }
 }

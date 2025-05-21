@@ -11,7 +11,7 @@ const CreateCall = sequelize.define(
             autoIncrement: true,
             primaryKey: true,
         },
-        idUser: {
+        userId: {
             type: DataTypes.BIGINT,
             allowNull: false,
             references: {
@@ -19,7 +19,7 @@ const CreateCall = sequelize.define(
                 key: 'id'
             }
         },
-        idSchool: {
+        schoolId: {
             type: DataTypes.BIGINT,
             allowNull: false,
             references: {
@@ -43,7 +43,7 @@ const CreateCall = sequelize.define(
 );
 
 
-CreateCall.belongsTo(User, { foreignKey: 'idUser', as: 'user' });
-CreateCall.belongsTo(School, { foreignKey: 'idSchool', as: 'school' });
+CreateCall.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+CreateCall.belongsTo(School, { foreignKey: 'schoolId', as: 'school' });
 
 module.exports = CreateCall;

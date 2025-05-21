@@ -186,10 +186,10 @@ class Screening {
         try {
             const schoolPromises = userRecords.map(async (user) => {
                 const relations = await sequelize.models.userschool.findAll({
-                    where: { idUser: user.id },
-                    attributes: ['idSchool']
+                    where: { userId: user.id },
+                    attributes: ['schoolId']
                 });
-                return relations.map(r => r.idSchool);
+                return relations.map(r => r.schoolId);
             });
 
             const schoolIdArrays = await Promise.all(schoolPromises);
@@ -217,15 +217,15 @@ class Screening {
             const schoolUserMap = {};
             for (const user of userRecords) {
                 const userSchools = await sequelize.models.userschool.findAll({
-                    where: { idUser: user.id },
-                    attributes: ['idSchool']
+                    where: { userId: user.id },
+                    attributes: ['schoolId']
                 });
                 
                 for (const relation of userSchools) {
-                    if (!schoolUserMap[relation.idSchool]) {
-                        schoolUserMap[relation.idSchool] = [];
+                    if (!schoolUserMap[relation.schoolId]) {
+                        schoolUserMap[relation.schoolId] = [];
                     }
-                    schoolUserMap[relation.idSchool].push(user);
+                    schoolUserMap[relation.schoolId].push(user);
                 }
             }
 
@@ -328,11 +328,11 @@ class Screening {
             // Se chegou aqui, tem múltiplos vínculos - continua com a lógica existente
             const userSchoolRelations = await sequelize.models.userschool.findAll({
                 where: {
-                    idUser: {
+                    userId: {
                         [Op.in]: usersByType.map(u => u.id)
                     }
                 },
-                attributes: ['idUser', 'idSchool']
+                attributes: ['userId', 'schoolId']
             });
 
             if (!userSchoolRelations || userSchoolRelations.length === 0) {
@@ -345,7 +345,7 @@ class Screening {
                 return;
             }
     
-            const schoolIds = [...new Set(userSchoolRelations.map(r => r.idSchool))];
+            const schoolIds = [...new Set(userSchoolRelations.map(r => r.schoolId))];
             const schools = await School.findAll({
                 where: {
                     id: {
@@ -367,10 +367,10 @@ class Screening {
             // Mapeia qual usuário está associado a qual escola
             const schoolUserMap = {};
             userSchoolRelations.forEach(rel => {
-                if (!schoolUserMap[rel.idSchool]) {
-                    schoolUserMap[rel.idSchool] = [];
+                if (!schoolUserMap[rel.schoolId]) {
+                    schoolUserMap[rel.schoolId] = [];
                 }
-                schoolUserMap[rel.idSchool].push(rel.idUser);
+                schoolUserMap[rel.schoolId].push(rel.userId);
             });
     
             // Anexa os users às escolas correspondentes
@@ -479,8 +479,8 @@ class Screening {
         
         
         const createCall = await CreateCall.create({
-            idUser: userId,
-            idSchool: school.id,
+            userId: userId,
+            schoolId: school.id,
             chatId: chatId,
             date: new Date()
         });

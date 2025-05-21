@@ -47,7 +47,7 @@ const sequelize = new Sequelize({
 
         if (record.telephone !== undefined) {
             await UserTelephone.create({
-                idUser: user.id,
+                userId: user.id,
                 telephone: String(record.telephone || '')
             }, { transaction });
         }

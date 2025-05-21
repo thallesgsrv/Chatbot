@@ -137,20 +137,28 @@ function setupSocketListeners(io) {
 
         socket.on('createCard', async (data) => {
             try {
-                console.log('Recebendo solicitação de criação de card:', data);
-                const { chatId, cardLink } = data;
-                
-                const card = await Card.create({
-                    chatId,
-                    cardLink,
-                    cardStatus: 'PENDING'
+                // Forward the request to the API endpoint instead of creating card directly
+                console.log('Encaminhando solicitação de criação de card para API:', data);
+                const response = await fetch('http://localhost:3000/api/problem-cards/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
                 });
 
+                if (!response.ok) {
+                    throw new Error('Falha ao criar card via API');
+                }
+
+                const card = await response.json();
                 console.log('Card criado com sucesso:', card);
                 io.emit('cardCreated', card);
             } catch (error) {
                 console.error('Erro ao processar criação do card:', error);
-                socket.emit('cardError', { error: 'Erro interno do servidor' });
+                socket.emit('cardError', { 
+                    error: 'Erro ao criar card: ' + error.message 
+                });
             }
         });
 

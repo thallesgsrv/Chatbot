@@ -4,7 +4,7 @@ const {DataTypes} = require('sequelize');
 const UserTelephone = sequelize.define(
     'usertelephone',
     {
-        idUser: {
+        userId: {
             type: DataTypes.BIGINT,
             references: {
                 model: 'user',

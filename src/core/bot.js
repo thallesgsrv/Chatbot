@@ -195,35 +195,20 @@ function setupSocketListeners(io) {
 
         socket.on('createCard', async (data) => {
             try {
-                console.log('Recebendo solicitação de criação de card:', data);
-                const { chatId, cardLink } = data;
-                
-                // First find the latest call for this chat
-                const createCall = await CreateCall.findOne({
-                    where: { chatId },
-                    order: [['date', 'DESC']]
+                // Forward the request to the API endpoint instead of creating card directly
+                const response = await fetch('http://localhost:3000/api/problem-cards/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
                 });
 
-                if (!createCall) {
-                    throw new Error('CreateCall não encontrado');
+                if (!response.ok) {
+                    throw new Error('Falha ao criar card via API');
                 }
 
-                const call = await Call.findOne({
-                    where: { createCallId: createCall.id }
-                });
-
-                if (!call) {
-                    throw new Error('Call não encontrado');
-                }
-
-                // Create the card with proper callId
-                const card = await Card.create({
-                    link: cardLink,
-                    callId: call.id,
-                    status: 'PENDING'
-                });
-
-                console.log('Card criado com sucesso:', card);
+                const card = await response.json();
                 io.emit('cardCreated', card);
             } catch (error) {
                 console.error('Erro ao processar criação do card:', error);
@@ -870,8 +855,8 @@ async function saveClientInfoToDatabase(userInfo, chatId, status, io) {
         });
 
         await CreateCall.create({
-            idUser: user.id,
-            idSchool: school.id,
+            userId: user.id,
+            schoolId: school.id,
             chatId: chatId,
             date: new Date()
         });

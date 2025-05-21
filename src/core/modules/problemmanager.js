@@ -522,8 +522,6 @@ class ProblemManager {
             });
 
             if (call) {
-                // O card já foi criado pela rota /api/problem-cards/create
-                // Apenas atualizamos o status do call
                 await call.update({
                     status: 'COMPLETED',
                     dateTimeFinish: new Date()

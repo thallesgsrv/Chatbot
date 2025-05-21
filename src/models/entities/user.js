@@ -39,13 +39,13 @@ const User = sequelize.define(
 // Associações
 User.belongsToMany(School, { 
     through: 'userschool',
-    foreignKey: 'idUser',
-    otherKey: 'idSchool',
+    foreignKey: 'userId',
+    otherKey: 'schoolId',
     timestamps: false,
 })
 
 User.hasMany(UserTelephone, {
-    foreignKey: 'idUser'
+    foreignKey: 'userId'
 });
 
 // Exportações

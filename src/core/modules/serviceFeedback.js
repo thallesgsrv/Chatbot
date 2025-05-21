@@ -1,5 +1,4 @@
-
-const finished = require('../messages/finished.json');
+/*const finished = require('../messages/finished.json');
 
 class ServiceFeedback {
     static delay(ms) {
@@ -32,11 +31,11 @@ class ServiceFeedback {
                     options: { type: 'sendText' }
                 });
 
-                // Emitir eventos na ordem correta
-                const statusData = await this.getStatusUpdate();
-                io?.emit('statusUpdate', statusData);
-                io?.emit('feedbackReceived', { chatId });
-                io?.emit('forceUpdate');
+                // Emitir apenas um evento consolidado
+                io?.emit('feedbackReceived', { 
+                    chatId,
+                    statusData: await this.getStatusUpdate()
+                });
 
                 return true;
             } else {
@@ -138,7 +137,6 @@ class ServiceFeedback {
             // Atualizar UI antes de solicitar feedback
             const statusData = await this.getStatusUpdate();
             global.io?.emit('statusUpdate', statusData);
-            global.io?.emit('chatCompleted', { chatId });
             
             // Depois solicitar feedback
             await conn.client.sendMessage({
@@ -155,4 +153,4 @@ class ServiceFeedback {
     }
 }
 
-module.exports = ServiceFeedback;
+module.exports = ServiceFeedback;?*/
