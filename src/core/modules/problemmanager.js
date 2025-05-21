@@ -522,45 +522,20 @@ class ProblemManager {
             });
 
             if (call) {
-                let cardId = null;
-
-                if (cardData && cardData.cardLink) {
-                    try {
-                        const card = await Card.create({
-                            link: cardData.cardLink,
-                            callId: call.id,
-                            status: 'COMPLETED', // Changed from 'PENDING' to 'COMPLETED'
-                            createdAt: new Date()
-                        });
-                        cardId = card.id;
-                        await call.update({ cardId: card.id });
-                    } catch (cardError) {
-                        console.error('Error creating/linking card:', cardError);
-                    }
-                }
-
+                // O card já foi criado pela rota /api/problem-cards/create
+                // Apenas atualizamos o status do call
                 await call.update({
                     status: 'COMPLETED',
                     dateTimeFinish: new Date()
                 });
 
+                // Clear user topic and human attended status
                 delete this.userCurrentTopic[chatId];
                 this.sharedState.removeChatFromHumanAttended(chatId);
 
-                // Send thank you message before emitting events
-                if (conn) {
+                // Send feedback request if not skipped
+                if (conn && !skipFeedback) {
                     await this.sendMessage(conn, chatId, finished.helpfulMessage);
-                }
-
-                // Emit chatCompleted event immediately
-                this.io.emit('chatCompleted', { 
-                    chatId,
-                    cardId,
-                    callId: call.id,
-                    cardLink: cardData?.cardLink
-                });
-
-                if (conn && !skipFeedback) { // Added skipFeedback check
                     await this.sendMessage(conn, chatId, finished.feedbackRequest);
                     this.userCurrentTopic[chatId] = {
                         state: 'awaitingRating',
@@ -568,6 +543,11 @@ class ProblemManager {
                     };
                 }
 
+                // Emit events
+                this.io.emit('chatCompleted', { 
+                    chatId,
+                    callId: call.id
+                });
                 this.io.emit('statusUpdate');
             }
 

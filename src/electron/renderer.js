@@ -510,11 +510,36 @@ async function handleEndChat(chat) {
             modal.hide();
 
             try {
-                const cardData = cardCreatedSelect.value === 'yes' ? {
-                    cardLink: cardLinkInput.value.trim()
-                } : null;
+                // Criar card primeiro se necessário
+                let cardInfo = null;
+                if (cardCreatedSelect.value === 'yes') {
+                    // Fazer requisição para criar o card
+                    const response = await fetch('http://localhost:3000/api/problem-cards/create', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            callId: chat.id,
+                            cardLink: cardLinkInput.value.trim()
+                        })
+                    });
 
-                // Remove chat from UI immediately
+                    if (!response.ok) {
+                        throw new Error('Falha ao criar card');
+                    }
+
+                    cardInfo = await response.json();
+                }
+
+                // Emitir evento de finalização com dados do card
+                socket.emit('endChat', { 
+                    chatId: chat.chatId, 
+                    id: chat.id,
+                    cardData: cardInfo
+                });
+
+                // Remover da UI imediatamente
                 ['active-chat-list', 'waiting-list-container', 'problem-list-container'].forEach(containerId => {
                     const container = document.getElementById(containerId);
                     if (container) {
@@ -525,16 +550,7 @@ async function handleEndChat(chat) {
                     }
                 });
 
-                // Force UI update immediately
                 fetchDataAndUpdateUI();
-
-                // Emit endChat event with card data
-                socket.emit('endChat', { 
-                    chatId: chat.chatId, 
-                    id: chat.id,
-                    cardData, 
-                    requestFeedback: true
-                });
 
             } catch (error) {
                 console.error('Erro ao finalizar atendimento:', error);

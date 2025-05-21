@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Call = require('../../models/entities/call.js');
 const Card = require('../../models/entities/card.js');
+const CreateCall = require('../../models/entities/createcall.js');
 const { Op } = require('sequelize');
 
 router.get('/test', (req, res) => {
@@ -12,25 +13,42 @@ router.get('/test', (req, res) => {
 // Criar novo card
 router.post('/create', async (req, res) => {
     try {
-        console.log('Recebendo requisição:', req.body);
-        const { callId, link } = req.body;
+        console.log('Recebendo requisição de criação de card:', req.body);
+        const { callId, cardLink } = req.body;
         
-        if (!callId || !link) {
-            console.error('Dados inválidos:', { callId, link });
-            return res.status(400).json({ error: 'callId e link são obrigatórios' });
+        if (!callId || !cardLink) {
+            console.error('Dados inválidos:', { callId, cardLink });
+            return res.status(400).json({ error: 'callId e cardLink são obrigatórios' });
         }
 
+        // Verificar se o call existe
+        const call = await Call.findByPk(callId);
+        if (!call) {
+            return res.status(404).json({ error: 'Call não encontrado' });
+        }
+
+        // Criar o card
         const card = await Card.create({
-            link,
+            link: cardLink,
             status: 'PENDING',
-            callId
+            callId: callId,
+            createdAt: new Date()
         });
 
+        // Atualizar o call com a referência do card
+        await call.update({ cardId: card.id });
+
+        // Emitir evento de card criado
         if (req.app.get('io')) {
-            req.app.get('io').emit('cardCreated', card);
+            req.app.get('io').emit('cardCreated', {
+                ...card.toJSON(),
+                chatId: call.chatId
+            });
         }
 
+        console.log('Card criado com sucesso:', card);
         res.status(201).json(card);
+
     } catch (error) {
         console.error('Erro ao criar card:', error);
         res.status(500).json({ error: 'Erro interno do servidor' });
@@ -44,28 +62,67 @@ router.get('/', async (req, res) => {
         let where = {};
         
         if (status && status !== 'all') {
-            where.status = status;
+            where.status = status.toUpperCase();
         }
         
         if (date) {
             where.createdAt = {
-                [Op.between]: [new Date(date), new Date(date + ' 23:59:59')]
+                [Op.between]: [
+                    new Date(date + ' 00:00:00'), 
+                    new Date(date + ' 23:59:59')
+                ]
             };
         }
-        
+
+        // Get all cards with proper nested relationships
         const cards = await Card.findAll({
             where,
             include: [{
                 model: Call,
-                attributes: ['description']
+                attributes: ['id', 'createCallId'],
+                include: [{
+                    model: CreateCall,
+                    as: 'createcall',
+                    attributes: ['id', 'chatId']
+                }]
             }],
             order: [['createdAt', 'DESC']]
         });
 
-        res.json(cards);
+        // Map the results and get chatId properly
+        const safeCards = await Promise.all(
+            cards.map(async (card) => {
+                // First get the Call associated with this card
+                const call = await Call.findOne({
+                    where: { id: card.callId },
+                    include: [{
+                        model: CreateCall,
+                        as: 'createcall',
+                        attributes: ['chatId']
+                    }]
+                });
+
+                return {
+                    id: card.id,
+                    status: card.status,
+                    link: card.link,
+                    createdAt: card.createdAt,
+                    updatedAt: card.updatedAt,
+                    callId: card.callId,
+                    chatId: call?.createcall?.chatId || null
+                };
+            })
+        );
+
+        console.log('Cards found:', safeCards.map(c => ({
+            id: c.id,
+            chatId: c.chatId
+        })));
+
+        res.json(safeCards);
     } catch (error) {
         console.error('Route error:', error);
-        res.status(500).json({ error: 'Erro interno do servidor' });
+        res.status(500).json({ error: 'Erro interno do servidor: ' + error.message });
     }
 });
 

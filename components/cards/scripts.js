@@ -14,7 +14,7 @@ async function loadCards(filters = {}) {
         const params = new URLSearchParams();
         
         if (filters.status && filters.status !== 'all') {
-            params.append('status', filters.status);
+            params.append('status', filters.status.toUpperCase());
         }
         if (filters.date) {
             params.append('date', filters.date);
@@ -24,24 +24,29 @@ async function loadCards(filters = {}) {
             url += '?' + params.toString();
         }
 
+        console.log('Fetching cards from:', url);
         const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
         
-        const cards = await response.json();
-        renderCards(cards);
+        if (!response.ok) {
+            throw new Error(data.error || `HTTP error! status: ${response.status}`);
+        }
+        
+        console.log('Cards loaded:', data);
+        renderCards(data);
     } catch (error) {
         console.error('Erro ao carregar cards:', error);
-        showError('Falha ao carregar os cards');
+        showError(`Falha ao carregar os cards: ${error.message}`);
     }
 }
 
 // Função para criar um novo card
-async function createCard(chatId, cardLink) {
+async function createCard(cardData) {
     try {
-        console.log('Tentando criar card:', { chatId, cardLink });
+        console.log('Tentando criar card:', cardData);
         
-        if (!chatId || !cardLink) {
-            throw new Error('ChatId e CardLink são obrigatórios');
+        if (!cardData.callId || !cardData.cardLink) {
+            throw new Error('CallId e CardLink são obrigatórios');
         }
 
         const response = await fetch('http://localhost:3000/api/problem-cards/create', {
@@ -50,23 +55,25 @@ async function createCard(chatId, cardLink) {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                chatId: chatId.toString(),
-                cardLink: cardLink.toString()
+                callId: cardData.callId,
+                cardLink: cardData.cardLink
             })
         });
 
-        const data = await response.json();
-
         if (!response.ok) {
-            throw new Error(data.error || 'Erro ao criar card');
+            const error = await response.json();
+            throw new Error(error.error || 'Erro ao criar card');
         }
 
+        const data = await response.json();
         console.log('Card criado com sucesso:', data);
-        await loadCards(); // Recarrega a lista de cards
+        
+        // Recarrega a lista de cards
+        await loadCards();
+        
         return data;
     } catch (error) {
         console.error('Erro ao criar card:', error);
-        alert('Erro ao criar o card: ' + error.message);
         throw error;
     }
 }
@@ -80,13 +87,12 @@ function showError(message) {
         </div>`;
 }
 
-// Função para renderizar cards com debug
+// Função para renderizar cards
 function renderCards(cards) {
     console.log('Renderizando cards:', cards);
     cardsContainer.innerHTML = '';
     
     if (!Array.isArray(cards) || cards.length === 0) {
-        console.log('Nenhum card encontrado');
         cardsContainer.innerHTML = `
             <div class="empty-message">
                 <i class="fas fa-inbox"></i>
@@ -99,7 +105,6 @@ function renderCards(cards) {
     cardsGrid.className = 'cards-grid';
     
     cards.forEach(card => {
-        console.log('Processando card:', card);
         const cardElement = createCardElement(card);
         cardsGrid.appendChild(cardElement);
     });
@@ -107,29 +112,30 @@ function renderCards(cards) {
     cardsContainer.appendChild(cardsGrid);
 }
 
-// Função para criar elemento de card com verificações
+// Função para criar elemento de card
 function createCardElement(card) {
     if (!card || !card.id) {
         console.error('Card inválido:', card);
         return document.createElement('div');
     }
-
-    console.log('Criando elemento para card:', card);
     
     const div = document.createElement('div');
-    div.className = `card-item ${card.card_status || 'pending'}`;
+    div.className = `card-item ${card.status?.toLowerCase() || 'pending'}`;
     div.dataset.id = card.id;
 
-    const statusText = card.card_status === 'pending' ? 'Pendente' : 'Concluído';
-    const statusClass = card.card_status === 'pending' ? 'status-pending' : 'status-completed';
+    const statusText = card.status === 'COMPLETED' ? 'Concluído' : 'Pendente';
+    const statusClass = card.status === 'COMPLETED' ? 'status-completed' : 'status-pending';
 
-    const createdDate = new Date(card.created_at).toLocaleString('pt-BR', {
+    const createdDate = new Date(card.createdAt).toLocaleString('pt-BR', {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit'
     });
+
+    // Format phone number for display
+    const phoneNumber = card.chatId ? formatPhoneNumber(card.chatId) : 'N/A';
 
     div.innerHTML = `
         <div class="card-header">
@@ -140,7 +146,7 @@ function createCardElement(card) {
             <div class="card-info">
                 <div class="info-row">
                     <i class="fas fa-phone"></i>
-                    <span>${formatPhoneNumber(card.chatId)}</span>
+                    <span class="phone-number">${phoneNumber}</span>
                 </div>
                 <div class="info-row">
                     <i class="fas fa-calendar"></i>
@@ -148,11 +154,7 @@ function createCardElement(card) {
                 </div>
             </div>
             <div class="card-actions">
-                <a href="${card.card_link}" target="_blank" class="btn btn-primary btn-sm">
-                    <i class="fas fa-external-link-alt"></i>
-                    Abrir Card
-                </a>
-                ${card.card_status === 'pending' ? `
+                ${card.status !== 'COMPLETED' ? `
                     <button class="btn btn-success btn-sm" onclick="markAsCompleted(${card.id})">
                         <i class="fas fa-check"></i>
                         Concluir
@@ -163,9 +165,23 @@ function createCardElement(card) {
                         Reabrir
                     </button>
                 `}
+                <a href="${card.link}" target="_blank" class="btn btn-primary btn-sm">
+                    <i class="fas fa-external-link-alt"></i>
+                    Ver Card
+                </a>
             </div>
         </div>
     `;
+
+    // Add click handler to phone number to open WhatsApp chat
+    const phoneElement = div.querySelector('.phone-number');
+    if (phoneElement && card.chatId) {
+        phoneElement.style.cursor = 'pointer';
+        phoneElement.title = 'Clique para abrir chat no WhatsApp';
+        phoneElement.addEventListener('click', () => {
+            window.electronAPI.openWhatsAppChat(card.chatId);
+        });
+    }
 
     return div;
 }
@@ -180,7 +196,10 @@ async function reopenCard(cardId) {
             }
         });
 
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || `HTTP error! status: ${response.status}`);
+        }
 
         const updatedCard = await response.json();
         
@@ -257,7 +276,8 @@ async function handleEndChat(chat) {
             if (cardCreatedSelect.value === 'yes') {
                 const cardData = {
                     chatId: chat.chatId,
-                    cardLink: cardLinkInput.value.trim()
+                    cardLink: cardLinkInput.value.trim(),
+                    callId: chat.id // Include callId in cardData
                 };
                 
                 console.log('Enviando dados do card:', cardData);
@@ -287,44 +307,28 @@ async function handleEndChat(chat) {
 }
 
 // Event Listeners
-socket.on('connect', () => {
-    console.log('Conectado ao Socket.IO');
-});
-
-socket.on('cardCreated', (card) => {
-    console.log('Novo card recebido via Socket.IO:', card);
-    loadCards();
-});
-
-socket.on('cardUpdated', (card) => {
-    console.log('Card atualizado:', card);
-    const cardElement = document.querySelector(`[data-id="${card.id}"]`);
-    if (cardElement) {
-        cardElement.replaceWith(createCardElement(card));
-    }
-});
-
-// Inicialização
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('Página carregada, buscando cards...');
+    console.log('Iniciando gerenciamento de cards...');
     loadCards();
     
-    // Atualização automática
+    // Atualização automática a cada 30 segundos
     setInterval(() => {
-        console.log('Atualizando cards...');
-        loadCards({
+        const currentFilters = {
             status: statusFilter.value,
             date: dateFilter.value
-        });
+        };
+        loadCards(currentFilters);
     }, 30000);
 });
 
-// Filtros
+// Filtros com event listener corrigido
 applyFilterBtn.addEventListener('click', () => {
-    loadCards({
+    const filters = {
         status: statusFilter.value,
         date: dateFilter.value
-    });
+    };
+    console.log('Applying filters:', filters);
+    loadCards(filters);
 });
 
 function formatPhoneNumber(number) {
