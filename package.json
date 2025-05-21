@@ -57,19 +57,29 @@
             "target": "nsis",
             "icon": "./assets/ico.ico",
             "signAndEditExecutable": false,
-            "requestedExecutionLevel": "asInvoker"
+            "requestedExecutionLevel": "asInvoker",
+            "extraFiles": [
+                {
+                    "from": "node_modules/puppeteer-core/.local-chromium",
+                    "to": "chrome",
+                    "filter": ["**/*"]
+                }
+            ]
         },
         "nsis": {
             "oneClick": false,
             "allowToChangeInstallationDirectory": true,
             "createDesktopShortcut": true,
-            "perMachine": true
+            "perMachine": true,
+            "include": "build/installer.nsh"
         },
         "asar": false,
         "asarUnpack": [
             "node_modules/puppeteer-core/.local-chromium/**/*",
+            "node_modules/puppeteer/**/*",
             "components/**/*",
-            "assets/*"
+            "assets/*",
+            "chrome/**/*"
         ]
     },
     "devDependencies": {
