@@ -8,12 +8,13 @@ const sequelize = require('../../models/connections/connection');
 const { Op } = require('sequelize');
 
 class Screening {
-    constructor(io, getStatusUpdate, problemManager, sharedState) {
+    constructor(io, getStatusUpdate, problemManager, sharedState, queueManager) {
         this.userCurrentTopic = {};
         this.io = io; 
         this.getStatusUpdate = getStatusUpdate; 
         this.problemManager = problemManager; 
         this.sharedState = sharedState;
+        this.queueManager = queueManager;
     }
 
     isHumanAttended(chatId) {
@@ -255,7 +256,13 @@ class Screening {
             this.userCurrentTopic[chatId] = {
                 state: 'awaitingSchoolSelection',
                 baseUser,
-                schools,
+                schools: schools.map(school => ({
+                    ...school.dataValues,
+                    userId: (schoolUserMap[school.id] || []).map(u => u.id),
+                    userName: (schoolUserMap[school.id] || [])[0]?.name,
+                    userType: (schoolUserMap[school.id] || [])[0]?.type,
+                    iescolarId: (schoolUserMap[school.id] || [])[0]?.iescolarId
+                })),
                 schoolUserMap
             };
 
@@ -269,13 +276,21 @@ class Screening {
 
         // Se houver apenas uma escola, use os usuários mapeados para essa escola
         const schoolUsers = schoolUserMap[schools[0].id] || [];
+        if (!schoolUsers.length) {
+            console.error('No users found for school:', schools[0].id);
+            await conn.client.sendMessage({
+                to: chatId,
+                body: errors.tryAgainLater,
+                options: { type: 'sendText' }
+            });
+            return;
+        }
+
         await this.proceedWithSchoolSelection(conn, chatId, {
+            ...schools[0].dataValues,
             userId: schoolUsers.map(u => u.id),
             userName: schoolUsers[0].name,
             userType: schoolUsers[0].type,
-            id: schools[0].id,
-            name: schools[0].name,
-            client: schools[0].client,
             iescolarId: schoolUsers[0].iescolarId
         });
     }
@@ -302,12 +317,15 @@ class Screening {
             // Se houver apenas um usuário com um vínculo, use-o diretamente
             if (usersByType.length === 1) {
                 const singleUser = usersByType[0];
+                
+                // Corrigido: Buscar escolas através da tabela de junção
+                const userSchoolRelations = await sequelize.models.userschool.findAll({
+                    where: { userId: singleUser.id }
+                });
+                
+                const schoolIds = userSchoolRelations.map(rel => rel.schoolId);
                 const userSchools = await School.findAll({
-                    include: [{
-                        model: User,
-                        where: { id: singleUser.id },
-                        through: 'userschool'
-                    }]
+                    where: { id: schoolIds }
                 });
 
                 if (userSchools.length === 1) {
@@ -456,10 +474,22 @@ class Screening {
     async proceedWithSchoolSelection(conn, chatId, school) {
         if (!this.shouldProcessMessage(chatId)) return;
 
+        const userId = Array.isArray(school.userId) ? school.userId[0] : school.userId;
+        if (!userId) {
+            console.error('User ID is missing for school selection:', school);
+            await conn.client.sendMessage({
+                to: chatId,
+                body: errors.tryAgainLater,
+                options: { type: 'sendText' }
+            });
+            this.clearUserTopic(chatId);
+            return;
+        }
+
         this.userCurrentTopic[chatId] = {
             state: 'cpfTriaged',
-            userId: Array.isArray(school.userId) ? school.userId[0] : school.userId,
-            userIds: Array.isArray(school.userId) ? school.userId : [school.userId], 
+            userId: userId,
+            userIds: Array.isArray(school.userId) ? school.userId : [userId],
             userName: school.userName,
             userType: school.userType,
             schoolId: school.id,
@@ -468,47 +498,56 @@ class Screening {
             iescolarId: school.iescolarId
         };
 
-        if (conn.client && typeof conn.client.emit === 'function') {
-            conn.client.emit('userTriaged', {
-                chatId,
-                userData: this.userCurrentTopic[chatId]
+        try {
+            const createCall = await CreateCall.create({
+                userId: userId,
+                schoolId: school.id,
+                chatId: chatId,
+                date: new Date()
             });
-        }
 
-        const userId = Array.isArray(school.userId) ? school.userId[0] : school.userId;
-        
-        
-        const createCall = await CreateCall.create({
-            userId: userId,
-            schoolId: school.id,
-            chatId: chatId,
-            date: new Date()
-        });
+            const queueStatus = await this.queueManager.checkQueueStatus(chatId);
+            
+            const call = await Call.create({
+                createCallId: createCall.id,
+                position: school.userType,
+                status: queueStatus.shouldQueue ? 'WAITING' : 'ACTIVE'
+            });
 
-        await Call.create({
-            createCallId: createCall.id,
-            position: school.userType,
-            status: 'ACTIVE'
-        });
+            await conn.client.sendMessage({
+                to: chatId,
+                body: greetings.confirmSchool.replace('%s', `${school.name} - ${school.client} (${school.userType})`),
+                options: { type: 'sendText' }
+            });
 
-        await conn.client.sendMessage({
-            to: chatId,
-            body: greetings.confirmSchool.replace('%s', `${school.name} - ${school.client} (${school.userType})`),
-            options: { type: 'sendText' }
-        });
-
-        if (this.io) {
-            if (this.getStatusUpdate) {
-                const statusData = await this.getStatusUpdate();
-                this.io.emit('statusUpdate', statusData);
+            if (queueStatus.shouldQueue) {
+                
+                await this.queueManager.addToQueue(call);
             } else {
-                this.io.emit('forceUpdate');
+                // Proceed with normal flow
+                this.clearUserTopic(chatId);
+                this.problemManager.setUserTopic(chatId, 'problema');
+                await this.problemManager.sendProblemOptions(conn, chatId);
             }
+
+            if (this.io) {
+                if (this.getStatusUpdate) {
+                    const statusData = await this.getStatusUpdate();
+                    this.io.emit('statusUpdate', statusData);
+                } else {
+                    this.io.emit('forceUpdate');
+                }
+            }
+        } catch (error) {
+            console.error('Error creating call records:', error);
+            await conn.client.sendMessage({
+                to: chatId,
+                body: errors.tryAgainLater,
+                options: { type: 'sendText' }
+            });
+            this.clearUserTopic(chatId);
+            return;
         }
-        
-        this.clearUserTopic(chatId); 
-        this.problemManager.setUserTopic(chatId, 'problema');
-        await this.problemManager.sendProblemOptions(conn, chatId);
     }
 
     getRandomWelcomeMessage() {

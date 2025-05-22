@@ -13,6 +13,7 @@ const { handleRecovery } = require('./recovery.js');
 const { getRecentContacts } = require('./contacts/getcontacts.js');
 const Screening = require('./modules/screening');
 const ProblemManager = require('./modules/problemmanager');
+const QueueManager = require('./modules/queuemanager');
 const DisabledContactManager = require('./contacts/disabledcontacts.js');
 
 // Import Sequelize models
@@ -42,7 +43,7 @@ const PROBLEM_MAPPINGS = require('./messages/problemMappings.json');
  */
 const CONFIG = {
     MESSAGE_DELAY: 1500, 
-    MAX_ACTIVE_CHATS: 3, // Alterado para 3 chats ativos
+    MAX_ACTIVE_CHATS: 1, 
     MESSAGE_HISTORY_LIMIT: 50,
     DUPLICATE_MESSAGE_WINDOW: 30000,
     DEFAULT_HEADLESS: false
@@ -125,9 +126,10 @@ async function startHydraBot(io) {
 
         console.log('Bot initialized successfully');
         
-        // Update initialization to use shared state
+        // Update initialization to use shared state and queue manager
+        const queueManager = new QueueManager(io, botConnection, CONFIG);
         problemManager = new ProblemManager(io, botConnection, null, sharedState);
-        screening = new Screening(io, getStatusUpdate, problemManager, sharedState);
+        screening = new Screening(io, getStatusUpdate, problemManager, sharedState, queueManager);
         problemManager.setScreening(screening);
         
         bot.on('connection', async (conn) => {
@@ -488,7 +490,6 @@ async function startListeningForMessages(conn, io) {
     });
 }
 
-
 /**
  * Atualiza o banco de dados e notifica os clientes
  * @param {string} query - Query SQL
@@ -671,7 +672,7 @@ async function sendProblemOptions(conn, chatId) {
 // Processa fechamento do chat
 async function handleChatClosed(chatId, io) {
     try {
-        // First emit chatCompleted event immediately
+        // Emit chatCompleted event immediately
         io.emit('chatCompleted', { chatId });
         
         // Mark chat as completed
@@ -687,33 +688,27 @@ async function handleChatClosed(chatId, io) {
             }
         );
 
-        // Remove from active chats immediately
+        // Remove from active chats
         if (sharedState.isHumanAttended(chatId)) {
             sharedState.removeChatFromHumanAttended(chatId);
         }
 
-        // Get next user in waiting list
-        const nextUser = await getNextInWaitingList();
-        
-        if (nextUser) {
-            await Call.update(
-                { status: 'ACTIVE' },
-                { where: { id: nextUser.id } }
-            );
-
+        // Get and promote next user in queue
+        const nextCall = await queueManager.promoteNextInQueue();
+        if (nextCall) {
             await sendMessage(
                 botConnection,
-                nextUser.createcall.chatId,
-                greetings.nextInLine.replace('%s', nextUser.createcall.user ? nextUser.createcall.user.name : '')
+                nextCall.createcall.chatId,
+                greetings.nextInLine.replace('%s', nextCall.createcall.user ? nextCall.createcall.user.name : '')
             );
-            await sendProblemOptions(botConnection, nextUser.createcall.chatId);
+            await problemManager.sendProblemOptions(botConnection, nextCall.createcall.chatId);
         }
 
         // Update waiting users and send status update
-        await updateWaitingUsers(io);
+        await queueManager.updateRemainingQueue();
         await sendStatusUpdateToMainProcess(io);
 
-        // Force an immediate UI refresh
+        // Force UI refresh
         io.emit('forceUpdate');
 
     } catch (error) {
