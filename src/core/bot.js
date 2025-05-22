@@ -42,7 +42,7 @@ const PROBLEM_MAPPINGS = require('./messages/problemMappings.json');
  */
 const CONFIG = {
     MESSAGE_DELAY: 1500, 
-    MAX_ACTIVE_CHATS: 1,
+    MAX_ACTIVE_CHATS: 3, // Alterado para 3 chats ativos
     MESSAGE_HISTORY_LIMIT: 50,
     DUPLICATE_MESSAGE_WINDOW: 30000,
     DEFAULT_HEADLESS: false
@@ -488,17 +488,6 @@ async function startListeningForMessages(conn, io) {
     });
 }
 
-/*async function checkIgnoredContact(chatId) {
-    try {
-        const ignoredContact = await User.findOne({
-            where: { chatId, ignored: true }
-        });
-        return !!ignoredContact;
-    } catch (error) {
-        console.error('Erro ao verificar contato ignorado:', error);
-        return false;
-    }
-}*/
 
 /**
  * Atualiza o banco de dados e notifica os clientes
@@ -615,57 +604,6 @@ async function getStatusUpdate() {
         };
     }
 }
-
-// Processa novo usuário
-async function handleNewUser(conn, chatId, userInfo, io) {
-    const activeCount = await Call.count({ where: { status: 'ACTIVE' } });
-    const status = activeCount < CONFIG.MAX_ACTIVE_CHATS ? 'ACTIVE' : 'WAITING';
-    
-    try {
-        await saveClientInfoToDatabase(userInfo, chatId, status, io);
-
-        if (status === 'ACTIVE') {
-            await sendMessage(
-                conn, 
-                chatId, 
-                greetings.attendantAvailable.replace('%s', userInfo.name)
-            );
-            await sendProblemOptions(conn, chatId);
-            userCurrentTopic[chatId] = 'problema';
-        } else {
-            const position = await getWaitingPosition(chatId);
-            await sendMessage(
-                conn,
-                chatId,
-                greetings.queueUpdate.replace('%s', userInfo.name).replace('%d', position)
-            );
-        }
-    } catch (error) {
-        console.error(errors.processError.replace('%s', error));
-        await sendMessage(conn, chatId, errors.tryAgainLater);
-    }
-}
-
-// Função para obter posição na fila
-async function getWaitingPosition(chatId) {
-    try {
-        const waitingUsers = await Call.findAll({
-            where: { status: 'WAITING' },
-            order: [[{ model: CreateCall, as: 'createcall' }, 'date', 'ASC']],
-            include: [{
-                model: CreateCall,
-                as: 'createcall'
-            }]
-        });
-
-        const position = waitingUsers.findIndex(call => call.createcall && call.createcall.chatId === chatId) + 1;
-        return position || waitingUsers.length + 1;
-    } catch (error) {
-        console.error('Erro ao obter posição na fila:', error);
-        return null;
-    }
-}
-
 
 async function handleUserMessage(conn, chatId, messageText, io) {
     try {
@@ -830,43 +768,6 @@ async function sendMessage(conn, chatId, message) {
     });
 }
 
-// Salvar informações do cliente no banco de dados
-async function saveClientInfoToDatabase(userInfo, chatId, status, io) {
-    try {
-        const [school] = await School.findOrCreate({
-            where: { name: userInfo.school },
-            defaults: {
-                name: userInfo.school,
-                inep: '',
-                client: '',
-                neighborhood: '',
-                street: '',
-                number: ''
-            }
-        });
-
-        const [user] = await User.findOrCreate({
-            where: { chatId: chatId },
-            defaults: {
-                name: userInfo.name,
-                type: userInfo.position,
-                identifier: ''
-            }
-        });
-
-        await CreateCall.create({
-            userId: user.id,
-            schoolId: school.id,
-            chatId: chatId,
-            date: new Date()
-        });
-
-        io.emit('statusUpdate');
-    } catch (error) {
-        console.error('Error saving client info:', error);
-    }
-}
-
 // Enviar atualização de status para o processo principal
 async function sendStatusUpdateToMainProcess(io) {
     try {
@@ -885,37 +786,6 @@ async function sendStatusUpdateToMainProcess(io) {
 
     } catch (error) {
         console.error('Erro ao atualizar status:', error);
-    }
-}
-
-async function updateWaitingUsers(io) {
-    try {
-        const waitingUsers = await Call.findAll({
-            where: { status: 'WAITING' },
-            order: [[{ model: CreateCall, as: 'createcall' }, 'date', 'ASC']],
-            include: [{
-                model: CreateCall,
-                as: 'createcall',
-                include: [User]
-            }]
-        });
-
-        // Para cada usuário em espera, calcular e enviar sua posição atual
-        for (let i = 0; i < waitingUsers.length; i++) {
-            const call = waitingUsers[i];
-            const currentPosition = i + 1; // Posição baseada no índice + 1
-            const user = call.createcall && call.createcall.user ? call.createcall.user : {};
-            const chatId = call.createcall ? call.createcall.chatId : '';
-            const name = user.name || '';
-            
-            const message = greetings.queueUpdate.replace('%s', name).replace('%d', currentPosition);
-            
-            if (botConnection && chatId) {
-                await sendMessage(botConnection, chatId, message);
-            }
-        }
-    } catch (error) {
-        console.error('Erro ao atualizar usuários em espera:', error);
     }
 }
 

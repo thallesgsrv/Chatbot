@@ -17,5 +17,6 @@
     "queueUpdate": "Atualização: %s, sua posição atual na fila é %dº lugar.",
     "attendantAssigned": "Um atendente está analisando seu problema e entrará em contato em breve.",
     "attendantIntroduction": "Olá, eu sou %s e estou aqui para ajudar você! 😊",
-    "nextInLine": "Olá %s! Sua vez chegou. Estamos iniciando seu atendimento."
+    "nextInLine": "Olá %s! Sua vez chegou. Estamos iniciando seu atendimento.",
+    "queueMessage": "Confirmando seus dados:\n%s\n\nNo momento todos nossos atendentes estão ocupados.\nVocê está na posição %dº da fila de espera.\nAguarde, você será atendido em breve."
 }
