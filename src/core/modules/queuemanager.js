@@ -138,6 +138,15 @@ class QueueManager {
             await this.notifyPromoted(nextInQueue.createcall.chatId);
             await this.updateRemainingQueue();
 
+            // Emit queue update event
+            if (this.io) {
+                this.io.emit('queueUpdate', {
+                    chatId: nextInQueue.createcall.chatId,
+                    position: 0,
+                    isPromoted: true
+                });
+            }
+
             return nextInQueue;
         } catch (error) {
             console.error('Erro ao promover próximo da fila:', error);
@@ -179,38 +188,61 @@ class QueueManager {
     }
 
     async notifyQueuePosition(chatId, position, isFirstNotification = false) {
-        if (this.botConnection) {
-            try {
-                const message = isFirstNotification ? 
-                    greetings.queueFirstNotification.replace('%d', position) :
-                    greetings.queueUpdate.replace('%d', position);
+        if (!this.botConnection) {
+            console.error('Conexão do bot não disponível para enviar mensagem');
+            return;
+        }
 
-                await this.botConnection.client.sendMessage({
-                    to: chatId,
-                    body: message,
-                    options: { type: 'sendText' }
-                });
-            } catch (error) {
-                console.error('Erro ao notificar posição:', error);
-            }
+        try {
+            const message = isFirstNotification ? 
+                greetings.queueFirstNotification.replace('%d', position) :
+                greetings.queueUpdate.replace('%d', position);
+
+            console.log(`Enviando mensagem para ${chatId}: ${message}`); 
+
+            await this.botConnection.client.sendMessage({
+                to: chatId,
+                body: message,
+                options: { type: 'sendText' }
+            });
+        } catch (error) {
+            console.error('Erro ao notificar posição:', error, {
+                chatId,
+                position,
+                isFirstNotification,
+                hasConnection: !!this.botConnection
+            });
         }
     }
 
     async notifyPromoted(chatId) {
-        if (this.botConnection) {
-            try {
-                await this.botConnection.client.sendMessage({
-                    to: chatId,
-                    body: greetings.nextInLine,
-                    options: { type: 'sendText' }
-                });
-            } catch (error) {
-                console.error('Erro ao notificar promoção:', error);
-            }
+        if (!this.botConnection) {
+            console.error('Conexão do bot não disponível para enviar mensagem');
+            return;
+        }
+
+        try {
+            console.log(`Notificando promoção para ${chatId}`); // Log para debug
+
+            await this.botConnection.client.sendMessage({
+                to: chatId,
+                body: greetings.nextInLine,
+                options: { type: 'sendText' }
+            });
+        } catch (error) {
+            console.error('Erro ao notificar promoção:', error, {
+                chatId,
+                hasConnection: !!this.botConnection
+            });
         }
     }
 
     setBotConnection(connection) {
+        if (!connection || !connection.client) {
+            console.error('Tentativa de definir conexão inválida');
+            return;
+        }
+        console.log('Atualizando conexão do bot no QueueManager');
         this.botConnection = connection;
     }
 }

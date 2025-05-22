@@ -537,13 +537,35 @@ class ProblemManager {
                     };
                 }
 
-                // Single event emission with all data
+                // Emit chat ended event
                 this.io.emit('chatEnded', { 
                     chatId,
                     callId: call.id,
                     skipFeedback,
                     type: skipFeedback ? 'completed' : 'awaitingFeedback'
                 });
+
+                // Promove imediatamente o próximo da fila
+                if (this.queueManager) {
+                    try {
+                        const nextCall = await this.queueManager.promoteNextInQueue();
+                        if (nextCall && nextCall.createcall) {
+                            const nextChatId = nextCall.createcall.chatId;
+                            
+                            // Limpa tópicos anteriores
+                            this.clearUserTopic(nextChatId);
+                            if (this.screening) {
+                                this.screening.clearUserTopic(nextChatId);
+                            }
+
+                            // Define novo tópico e envia opções
+                            this.setUserTopic(nextChatId, 'problema');
+                            await this.sendProblemOptions(conn, nextChatId);
+                        }
+                    } catch (error) {
+                        console.error('Erro ao promover próximo da fila:', error);
+                    }
+                }
             }
         } catch (error) {
             console.error('Erro ao finalizar chat:', error);

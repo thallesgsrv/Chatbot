@@ -126,9 +126,9 @@ async function startHydraBot(io) {
 
         console.log('Bot initialized successfully');
         
-        // Update initialization to use shared state and queue manager
-        const queueManager = new QueueManager(io, botConnection, CONFIG);
-        problemManager = new ProblemManager(io, botConnection, null, sharedState);
+        // Criar QueueManager com CONFIG
+        const queueManager = new QueueManager(io, null, CONFIG);
+        problemManager = new ProblemManager(io, null, null, sharedState);
         screening = new Screening(io, getStatusUpdate, problemManager, sharedState, queueManager);
         problemManager.setScreening(screening);
         
@@ -137,7 +137,11 @@ async function startHydraBot(io) {
                 console.log(logs.connectionEstablished);
                 conn.io = io; 
                 botConnection = conn;
+                
+                // Atualizar a conexão no QueueManager e ProblemManager
+                queueManager.setBotConnection(conn);
                 problemManager.setBotConnection(conn);
+                
                 startListeningForMessages(conn, io);
             } else {
                 console.error(errors.connectionError);
