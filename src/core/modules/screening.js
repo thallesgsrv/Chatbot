@@ -302,12 +302,14 @@ class Screening {
             // Se houver apenas um usuário com um vínculo, use-o diretamente
             if (usersByType.length === 1) {
                 const singleUser = usersByType[0];
+                // Corrigindo a query para buscar as escolas do usuário
+                const userSchoolRelations = await sequelize.models.userschool.findAll({
+                    where: { userId: singleUser.id }
+                });
+                
+                const schoolIds = userSchoolRelations.map(rel => rel.schoolId);
                 const userSchools = await School.findAll({
-                    include: [{
-                        model: User,
-                        where: { id: singleUser.id },
-                        through: 'userschool'
-                    }]
+                    where: { id: schoolIds }
                 });
 
                 if (userSchools.length === 1) {

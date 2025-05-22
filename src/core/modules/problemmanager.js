@@ -156,7 +156,6 @@ class ProblemManager {
                 return;
             }
 
-            // Update call with rating and completion time
             const call = await Call.findOne({
                 where: { id: topic.callId }
             });
@@ -168,20 +167,19 @@ class ProblemManager {
                     dateTimeFinish: new Date()
                 });
                 
-                // Send thank you message and end chat
                 await this.sendMessage(conn, chatId, finished.feedbackThank);
                 await this.sendMessage(conn, chatId, finished.chatCompleted);
                 
-                // Emit both events to ensure UI update
-                this.io.emit('chatCompleted', { chatId });
-                this.io.emit('feedbackReceived', { chatId });
-                this.io.emit('statusUpdate');
+                // Single event emission with all data
+                this.io.emit('chatEnded', { 
+                    chatId,
+                    callId: call.id,
+                    type: 'completed'
+                });
                 
-                // Clear user topic and remove from human attended
                 delete this.userCurrentTopic[chatId];
                 this.sharedState.removeChatFromHumanAttended(chatId);
             }
-
         } catch (error) {
             console.error('Erro em handleRating:', error);
             await this.sendMessage(conn, chatId, errors.tryAgainLater);
@@ -527,11 +525,9 @@ class ProblemManager {
                     dateTimeFinish: new Date()
                 });
 
-                // Clear user topic and human attended status
                 delete this.userCurrentTopic[chatId];
                 this.sharedState.removeChatFromHumanAttended(chatId);
 
-                // Send feedback request if not skipped
                 if (conn && !skipFeedback) {
                     await this.sendMessage(conn, chatId, finished.helpfulMessage);
                     await this.sendMessage(conn, chatId, finished.feedbackRequest);
@@ -541,14 +537,14 @@ class ProblemManager {
                     };
                 }
 
-                // Emit events
-                this.io.emit('chatCompleted', { 
+                // Single event emission with all data
+                this.io.emit('chatEnded', { 
                     chatId,
-                    callId: call.id
+                    callId: call.id,
+                    skipFeedback,
+                    type: skipFeedback ? 'completed' : 'awaitingFeedback'
                 });
-                this.io.emit('statusUpdate');
             }
-
         } catch (error) {
             console.error('Erro ao finalizar chat:', error);
             throw error;

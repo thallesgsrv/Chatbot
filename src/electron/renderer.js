@@ -66,8 +66,8 @@ socket.on('newProblemReported', (problemData) => {
     showNotification('Novo Problema Relatado', notificationData);
 });
 
-// Adicionar novo listener para feedback após conexão socket
-socket.on('feedbackReceived', (data) => {
+// Remove existing chatCompleted and feedbackReceived listeners
+socket.on('chatEnded', (data) => {
     if (data && data.chatId) {
         // Remove chat from all lists immediately
         ['active-chat-list', 'waiting-list-container', 'problem-list-container'].forEach(containerId => {
@@ -80,29 +80,8 @@ socket.on('feedbackReceived', (data) => {
             }
         });
 
-        // Force UI refresh
+        // Single UI refresh
         fetchDataAndUpdateUI();
-    }
-});
-
-// Update chatCompleted event listener
-socket.on('chatCompleted', (data) => {
-    if (data && data.chatId) {
-        // Remove chat from all lists immediately
-        ['active-chat-list', 'waiting-list-container', 'problem-list-container'].forEach(containerId => {
-            const container = document.getElementById(containerId);
-            if (container) {
-                const chatItem = container.querySelector(`[data-chat-id="${data.chatId}"]`);
-                if (chatItem) {
-                    chatItem.remove();
-                }
-            }
-        });
-
-        // Force UI refresh after a short delay
-        setTimeout(() => {
-            fetchDataAndUpdateUI();
-        }, 500);
     }
 });
 
@@ -240,7 +219,7 @@ function formatText(str) {
     if (!str) return '';
     
     // Palavras que devem permanecer em maiúsculo
-    const upperCaseWords = ['EMEIF', 'EMEF', 'EE'];
+    const upperCaseWords = ['EMEIF','EMEIEF', 'EMEF', 'EE'];
     
     // Palavras que devem permanecer em minúsculo (exceto se forem a primeira palavra)
     const lowerCaseWords = ['da', 'de', 'do', 'das', 'dos', 'e', 'em', 'na', 'no', 'nas', 'nos', 'para', 'por', 'com', 'a', 'o', 'as', 'os'];

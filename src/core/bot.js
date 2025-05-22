@@ -42,7 +42,7 @@ const PROBLEM_MAPPINGS = require('./messages/problemMappings.json');
  */
 const CONFIG = {
     MESSAGE_DELAY: 1500, 
-    MAX_ACTIVE_CHATS: 3,
+    MAX_ACTIVE_CHATS: 1,
     MESSAGE_HISTORY_LIMIT: 50,
     DUPLICATE_MESSAGE_WINDOW: 30000,
     DEFAULT_HEADLESS: false
