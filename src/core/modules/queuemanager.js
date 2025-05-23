@@ -1,6 +1,7 @@
 const Call = require('../../models/entities/call.js');
 const CreateCall = require('../../models/entities/createcall.js');
 const greetings = require('../messages/greetings.json');
+const User = require('../../models/entities/user.js');
 
 class QueueManager {
     constructor(io, botConnection, config) {
@@ -116,35 +117,76 @@ class QueueManager {
                 }
             });
 
-            if (activeCount >= this.maxActiveChats) {
-                console.log('Limite de chats ativos atingido');
-                return null;
-            }
+            console.log(`Chats ativos: ${activeCount}, máximo permitido: ${this.maxActiveChats}`);
 
             const nextInQueue = await Call.findOne({
-                where: { status: 'WAITING' },
+                where: { 
+                    status: 'WAITING',
+                    dateTimeFinish: null 
+                },
                 include: [{
                     model: CreateCall,
-                    as: 'createcall'
+                    as: 'createcall',
+                    include: [{
+                        model: User,
+                        as: 'user'
+                    }]
                 }],
                 order: [['createCallId', 'ASC']]
             });
 
             if (!nextInQueue) {
+                console.log('Nenhum usuário na fila de espera');
                 return null;
             }
 
-            await nextInQueue.update({ status: 'ACTIVE' });
-            await this.notifyPromoted(nextInQueue.createcall.chatId);
-            await this.updateRemainingQueue();
+            console.log(`Promovendo call ${nextInQueue.id} (${nextInQueue.createcall.chatId}) para ACTIVE`);
 
-            // Emit queue update event
-            if (this.io) {
-                this.io.emit('queueUpdate', {
-                    chatId: nextInQueue.createcall.chatId,
-                    position: 0,
-                    isPromoted: true
-                });
+            // Atualizar status para ACTIVE
+            await Call.update(
+                { status: 'ACTIVE' },
+                { where: { id: nextInQueue.id } }
+            );
+
+            // Notificar o usuário promovido
+            if (this.botConnection && nextInQueue.createcall) {
+                const nextChatId = nextInQueue.createcall.chatId.includes('@c.us') 
+                    ? nextInQueue.createcall.chatId 
+                    : `${nextInQueue.createcall.chatId}@c.us`;
+
+                // Formatar nome do usuário
+                const formatName = (name) => {
+                    if (!name) return '';
+                    return name.split(' ')
+                        .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+                        .join(' ');
+                };
+
+                try {
+                    const userName = formatName(nextInQueue.createcall.user?.name || '');
+                    
+                    // Enviar apenas uma mensagem - remover chamada do notifyPromoted
+                    await this.botConnection.client.sendMessage({
+                        to: nextChatId,
+                        body: greetings.nextInLine.replace('%s', userName || ''),
+                        options: { type: 'sendText' }
+                    });
+
+                    // Atualizar UI
+                    if (this.io) {
+                        this.io.emit('queueUpdate', {
+                            chatId: nextInQueue.createcall.chatId,
+                            position: 0,
+                            isPromoted: true
+                        });
+                        this.io.emit('statusUpdate');
+                        this.io.emit('forceUpdate');
+                    }
+
+                    await this.updateRemainingQueue();
+                } catch (error) {
+                    console.error('Erro ao enviar mensagens:', error);
+                }
             }
 
             return nextInQueue;
@@ -157,7 +199,10 @@ class QueueManager {
     async updateRemainingQueue() {
         try {
             const waitingCalls = await Call.findAll({
-                where: { status: 'WAITING' },
+                where: { 
+                    status: 'WAITING',
+                    dateTimeFinish: null
+                },
                 include: [{
                     model: CreateCall,
                     as: 'createcall'
@@ -165,17 +210,26 @@ class QueueManager {
                 order: [['createCallId', 'ASC']]
             });
 
-            // Notifica cada usuário na fila sobre sua nova posição
-            const notifications = waitingCalls.map(async (call, index) => {
-                const position = index + 1;
-                await this.notifyQueuePosition(
-                    call.createcall.chatId, 
-                    position,
-                    false
-                );
-            });
+            console.log(`Atualizando ${waitingCalls.length} usuários na fila`);
 
-            await Promise.all(notifications);
+            // Notificar cada usuário na fila sobre sua nova posição
+            for (let index = 0; index < waitingCalls.length; index++) {
+                const call = waitingCalls[index];
+                const position = index + 1;
+                
+                if (call.createcall && this.botConnection) {
+                    try {
+                        await this.notifyQueuePosition(
+                            call.createcall.chatId,
+                            position,
+                            false
+                        );
+                        console.log(`Notificado ${call.createcall.chatId} - posição ${position}`);
+                    } catch (error) {
+                        console.error(`Erro ao notificar ${call.createcall.chatId}:`, error);
+                    }
+                }
+            }
 
             if (this.io) {
                 this.io.emit('queueUpdated', {
@@ -188,8 +242,8 @@ class QueueManager {
     }
 
     async notifyQueuePosition(chatId, position, isFirstNotification = false) {
-        if (!this.botConnection) {
-            console.error('Conexão do bot não disponível para enviar mensagem');
+        if (!this.botConnection || !this.botConnection.client) {
+            console.error('Conexão do bot não disponível para notificar posição');
             return;
         }
 
@@ -198,42 +252,18 @@ class QueueManager {
                 greetings.queueFirstNotification.replace('%d', position) :
                 greetings.queueUpdate.replace('%d', position);
 
-            console.log(`Enviando mensagem para ${chatId}: ${message}`); 
-
             await this.botConnection.client.sendMessage({
                 to: chatId,
                 body: message,
                 options: { type: 'sendText' }
             });
+            
+            // Aguarda um pequeno intervalo para evitar flood de mensagens
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
         } catch (error) {
-            console.error('Erro ao notificar posição:', error, {
-                chatId,
-                position,
-                isFirstNotification,
-                hasConnection: !!this.botConnection
-            });
-        }
-    }
-
-    async notifyPromoted(chatId) {
-        if (!this.botConnection) {
-            console.error('Conexão do bot não disponível para enviar mensagem');
-            return;
-        }
-
-        try {
-            console.log(`Notificando promoção para ${chatId}`); // Log para debug
-
-            await this.botConnection.client.sendMessage({
-                to: chatId,
-                body: greetings.nextInLine,
-                options: { type: 'sendText' }
-            });
-        } catch (error) {
-            console.error('Erro ao notificar promoção:', error, {
-                chatId,
-                hasConnection: !!this.botConnection
-            });
+            console.error('Erro ao notificar posição:', error);
+            throw error;
         }
     }
 

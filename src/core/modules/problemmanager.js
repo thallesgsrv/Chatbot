@@ -13,12 +13,13 @@ const PROBLEM_MAPPINGS = require('../messages/problemMappings.json');
 const Card = require('../../models/entities/card.js');
 
 class ProblemManager {
-    constructor(io, botConnection, screening, sharedState) {
+    constructor(io, botConnection, screening, sharedState, queueManager) {
         this.io = io;
         this.botConnection = botConnection;
         this.screening = screening; 
         this.userCurrentTopic = {};
         this.sharedState = sharedState;
+        this.queueManager = queueManager;
     }
 
     setBotConnection(connection) {
@@ -170,15 +171,19 @@ class ProblemManager {
                 await this.sendMessage(conn, chatId, finished.feedbackThank);
                 await this.sendMessage(conn, chatId, finished.chatCompleted);
                 
-                // Single event emission with all data
+                // Limpar estados
+                delete this.userCurrentTopic[chatId];
+                this.sharedState.removeChatFromHumanAttended(chatId);
+
+                // Emitir evento de chat finalizado
                 this.io.emit('chatEnded', { 
                     chatId,
                     callId: call.id,
                     type: 'completed'
                 });
-                
-                delete this.userCurrentTopic[chatId];
-                this.sharedState.removeChatFromHumanAttended(chatId);
+
+                // Disparar chatEnded através do handleChatEnd para manter consistência
+                await this.handleChatEnd(conn, chatId, null, true);
             }
         } catch (error) {
             console.error('Erro em handleRating:', error);
@@ -520,14 +525,17 @@ class ProblemManager {
             });
 
             if (call) {
+                // Atualizar status do call atual
                 await call.update({
                     status: 'COMPLETED',
                     dateTimeFinish: new Date()
                 });
 
+                // Limpar estados
                 delete this.userCurrentTopic[chatId];
                 this.sharedState.removeChatFromHumanAttended(chatId);
 
+                // Enviar feedback se necessário
                 if (conn && !skipFeedback) {
                     await this.sendMessage(conn, chatId, finished.helpfulMessage);
                     await this.sendMessage(conn, chatId, finished.feedbackRequest);
@@ -537,7 +545,7 @@ class ProblemManager {
                     };
                 }
 
-                // Emit chat ended event
+                // Emitir evento de chat finalizado
                 this.io.emit('chatEnded', { 
                     chatId,
                     callId: call.id,
@@ -545,25 +553,32 @@ class ProblemManager {
                     type: skipFeedback ? 'completed' : 'awaitingFeedback'
                 });
 
-                // Promove imediatamente o próximo da fila
+                // Garantir que o próximo da fila seja promovido
                 if (this.queueManager) {
-                    try {
-                        const nextCall = await this.queueManager.promoteNextInQueue();
-                        if (nextCall && nextCall.createcall) {
-                            const nextChatId = nextCall.createcall.chatId;
+                    console.log('Promovendo próximo da fila após finalização de atendimento');
+                    const nextCall = await this.queueManager.promoteNextInQueue();
+                    if (nextCall && nextCall.createcall) {
+                        try {
+                            // Aguardar um momento antes de enviar opções de problema
+                            await new Promise(resolve => setTimeout(resolve, 2000));
                             
-                            // Limpa tópicos anteriores
-                            this.clearUserTopic(nextChatId);
-                            if (this.screening) {
-                                this.screening.clearUserTopic(nextChatId);
-                            }
+                            // Garantir que o chatId está no formato correto
+                            const nextChatId = nextCall.createcall.chatId.includes('@c.us') 
+                                ? nextCall.createcall.chatId 
+                                : `${nextCall.createcall.chatId}@c.us`;
 
-                            // Define novo tópico e envia opções
+                            // Apenas enviar as opções de problema, deixar a mensagem de boas-vindas para o QueueManager
+                            await conn.client.sendMessage({
+                                to: nextChatId,
+                                body: dialogs.problemOptions,
+                                options: { type: 'sendText' }
+                            });
+
+                            // Atualizar tópico do usuário
                             this.setUserTopic(nextChatId, 'problema');
-                            await this.sendProblemOptions(conn, nextChatId);
+                        } catch (error) {
+                            console.error('Erro ao enviar mensagens para próximo da fila:', error);
                         }
-                    } catch (error) {
-                        console.error('Erro ao promover próximo da fila:', error);
                     }
                 }
             }

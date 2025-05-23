@@ -31,7 +31,4 @@ const request = sequelize.define(
 );
 
 
-CreateCall.belongsTo(User, { foreignKey: 'userId', as: 'user' });
-CreateCall.belongsTo(School, { foreignKey: 'schoolId', as: 'school' });
-
-module.exports = CreateCall;
+module.exports = request;

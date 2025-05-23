@@ -126,11 +126,14 @@ async function startHydraBot(io) {
 
         console.log('Bot initialized successfully');
         
-        // Criar QueueManager com CONFIG
+        // Criar QueueManager e manter referência global
         const queueManager = new QueueManager(io, null, CONFIG);
-        problemManager = new ProblemManager(io, null, null, sharedState);
+        problemManager = new ProblemManager(io, null, null, sharedState, queueManager);
         screening = new Screening(io, getStatusUpdate, problemManager, sharedState, queueManager);
         problemManager.setScreening(screening);
+
+        // Adicionar referência global do queueManager
+        global.queueManager = queueManager;
         
         bot.on('connection', async (conn) => {
             if (conn.connect) {
@@ -679,40 +682,34 @@ async function handleChatClosed(chatId, io) {
         // Emit chatCompleted event immediately
         io.emit('chatCompleted', { chatId });
         
-        // Mark chat as completed
-        await Call.update(
-            { status: 'COMPLETED', dateTimeFinish: new Date() },
-            {
-                where: {},
-                include: [{
-                    model: CreateCall,
-                    as: 'createcall',
-                    where: { chatId }
-                }]
-            }
-        );
+        const createCall = await CreateCall.findOne({
+            where: { chatId },
+            order: [['date', 'DESC']]
+        });
+
+        if (createCall) {
+            await Call.update(
+                { 
+                    status: 'COMPLETED', 
+                    dateTimeFinish: new Date() 
+                },
+                { 
+                    where: { createCallId: createCall.id }
+                }
+            );
+        }
 
         // Remove from active chats
         if (sharedState.isHumanAttended(chatId)) {
             sharedState.removeChatFromHumanAttended(chatId);
         }
 
-        // Get and promote next user in queue
-        const nextCall = await queueManager.promoteNextInQueue();
-        if (nextCall) {
-            await sendMessage(
-                botConnection,
-                nextCall.createcall.chatId,
-                greetings.nextInLine.replace('%s', nextCall.createcall.user ? nextCall.createcall.user.name : '')
-            );
-            await problemManager.sendProblemOptions(botConnection, nextCall.createcall.chatId);
+        // Usar o queueManager global para promover próximo
+        if (global.queueManager) {
         }
 
-        // Update waiting users and send status update
-        await queueManager.updateRemainingQueue();
+        // Atualizar UI
         await sendStatusUpdateToMainProcess(io);
-
-        // Force UI refresh
         io.emit('forceUpdate');
 
     } catch (error) {
