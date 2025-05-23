@@ -69,7 +69,7 @@ function initDailyChart() {
                     ticks: {
                         stepSize: 1,
                         precision: 0,
-                        color: document.body.classList.contains('dark-theme') ? '#FFFFFF' : '#000000'
+                        color: '#000000'
                     },
                     grid: {
                         color: 'rgba(0, 0, 0, 0.1)'
@@ -77,7 +77,7 @@ function initDailyChart() {
                 },
                 x: {
                     ticks: {
-                        color: document.body.classList.contains('dark-theme') ? '#FFFFFF' : '#000000'
+                        color: '#000000'
                     },
                     grid: {
                         display: false
@@ -120,7 +120,7 @@ function initMonthlyChart() {
                 legend: {
                     position: 'bottom',
                     labels: {
-                        color: document.body.classList.contains('dark-theme') ? '#FFFFFF' : '#000000',
+                        color: '#000000',
                         padding: 10
                     }
                 },
@@ -160,7 +160,7 @@ function initFeedbackChart() {
                 legend: {
                     position: 'bottom',
                     labels: {
-                        color: document.body.classList.contains('dark-theme') ? '#FFFFFF' : '#000000',
+                        color: '#000000',
                         padding: 10,
                         font: {
                             size: 12
@@ -212,25 +212,11 @@ async function updateChartData(weeklyData, monthlyData, feedbackData) {
 }
 
 function updateChartsTheme(isDark) {
-    const chartColor = isDark ? 
-        { bg: 'rgba(75, 192, 192, 0.6)', border: 'rgba(75, 192, 192, 1)' } : 
-        { bg: 'rgba(54, 162, 235, 0.5)', border: 'rgba(54, 162, 235, 1)' };
+    const chartColor = { bg: 'rgba(75, 192, 192, 0.6)', border: 'rgba(75, 192, 192, 1)' };
     
-    const textColor = isDark ? '#FFFFFF' : '#000000';
-    const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
-
     // Update daily chart
     dailyProblemsChart.data.datasets[0].backgroundColor = chartColor.bg;
     dailyProblemsChart.data.datasets[0].borderColor = chartColor.border;
-    dailyProblemsChart.options.scales.y.ticks.color = textColor;
-    dailyProblemsChart.options.scales.x.ticks.color = textColor;
-    dailyProblemsChart.options.scales.y.grid.color = gridColor;
-    
-    // Update monthly chart
-    monthlyProblemsChart.options.plugins.legend.labels.color = textColor;
-    
-    // Update feedback chart
-    feedbackChart.options.plugins.legend.labels.color = textColor;
     
     // Apply updates
     dailyProblemsChart.update();

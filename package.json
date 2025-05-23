@@ -63,7 +63,9 @@
                 {
                     "from": "node_modules/puppeteer-core/.local-chromium",
                     "to": "chrome",
-                    "filter": ["**/*"]
+                    "filter": [
+                        "**/*"
+                    ]
                 }
             ]
         },
@@ -103,6 +105,7 @@
         "qrcode": "^1.5.4",
         "sequelize": "^6.37.7",
         "socket.io": "^4.8.1",
-        "socket.io-client": "^4.8.1"
+        "socket.io-client": "^4.8.1",
+        "sqlite3": "^5.1.7"
     }
 }
