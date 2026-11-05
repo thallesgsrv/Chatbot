@@ -1,5 +1,17 @@
-node_modules/*
-token/*
-bot_data.db
-dist/*
-dados bsr.csv   
+node_modules/
+dist/
+
+# Configuração local e segredos
+.env
+token/
+*.db
+
+# Dados de clientes (nunca versionar)
+dados bsr.csv
+*.csv
+
+# Editor / SO
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,14 +1,16 @@
 {
     "name": "whatsapp-electron-bot",
     "version": "1.0.0",
-    "description": "Um chatbot para WhatsApp",
+    "description": "Chatbot de suporte para WhatsApp com painel administrativo (Electron)",
     "author": "Redenet Soluções em TI <ok.email@exemplo.com>",
-    "main": "src/electron/main.js",
+    "license": "MIT",
+    "main": "src/main/main.js",
     "scripts": {
         "start": "electron .",
-        "start-bot": "node src/core/bot.js",
-        "start-electron": "electron .",
         "dev": "nodemon",
+        "serve": "node scripts/serve.js",
+        "import:csv": "node scripts/import-users-csv.js",
+        "test": "node --test",
         "build": "electron-builder",
         "dist": "electron-builder --win",
         "postinstall": "electron-builder install-app-deps"
@@ -22,8 +24,8 @@
         },
         "files": [
             "src/**/*",
+            "assets/**/*",
             "package.json",
-            "components/**/*",
             "node_modules/**/*",
             "build/**/*",
             "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
@@ -31,43 +33,11 @@
             "!**/node_modules/.bin",
             "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}"
         ],
-        "extraResources": [
-            {
-                "from": "./src/core",
-                "to": "./app/core",
-                "filter": [
-                    "**/*"
-                ]
-            },
-            {
-                "from": "./components",
-                "to": "./app/components",
-                "filter": [
-                    "**/*"
-                ]
-            },
-            {
-                "from": "./assets",
-                "to": "./app/assets",
-                "filter": [
-                    "**/*"
-                ]
-            }
-        ],
         "win": {
             "target": "nsis",
             "icon": "./assets/ico.ico",
             "signAndEditExecutable": false,
-            "requestedExecutionLevel": "asInvoker",
-            "extraFiles": [
-                {
-                    "from": "node_modules/puppeteer-core/.local-chromium",
-                    "to": "chrome",
-                    "filter": [
-                        "**/*"
-                    ]
-                }
-            ]
+            "requestedExecutionLevel": "asInvoker"
         },
         "nsis": {
             "oneClick": false,
@@ -76,36 +46,28 @@
             "perMachine": true,
             "include": "build/installer.nsh"
         },
-        "asar": false,
-        "asarUnpack": [
-            "node_modules/puppeteer-core/.local-chromium/**/*",
-            "node_modules/puppeteer/**/*",
-            "components/**/*",
-            "assets/*",
-            "chrome/**/*"
-        ]
+        "asar": false
+    },
+    "dependencies": {
+        "@fontsource/inter": "^5.0.20",
+        "@fortawesome/fontawesome-free": "^6.5.2",
+        "bootstrap": "^5.3.3",
+        "chart.js": "^4.4.7",
+        "csv-parse": "^5.6.0",
+        "dotenv": "^16.4.5",
+        "exceljs": "^4.4.0",
+        "express": "^4.21.2",
+        "hydra-bot": "^1.0.33",
+        "pdfkit": "^0.15.2",
+        "pg": "^8.16.0",
+        "pg-hstore": "^2.3.4",
+        "sequelize": "^6.37.7",
+        "socket.io": "^4.8.1"
     },
     "devDependencies": {
         "electron": "^33.2.0",
         "electron-builder": "^26.0.12",
-        "nodemon": "^3.1.10"
-    },
-    "dependencies": {
-        "chart.js": "^4.4.7",
-        "csv-parse": "^5.6.0",
-        "date-fns": "^4.1.0",
-        "exceljs": "^4.4.0",
-        "express": "^4.21.2",
-        "hydra-bot": "^1.0.33",
-        "open": "^10.1.0",
-        "pdfkit": "^0.15.2",
-        "pg": "^8.16.0",
-        "pg-hstore": "^2.3.4",
-        "puppeteer-core": "^20.9.0",
-        "qrcode": "^1.5.4",
-        "sequelize": "^6.37.7",
-        "socket.io": "^4.8.1",
-        "socket.io-client": "^4.8.1",
-        "sqlite3": "^5.1.7"
+        "nodemon": "^3.1.10",
+        "socket.io-client": "^4.8.1"
     }
 }

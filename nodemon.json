@@ -1,7 +1,7 @@
 {
-    "watch": ["src/electron", "src/core", "components"],
+    "watch": ["src", "assets"],
     "ext": "js,json,html,css",
     "exec": "electron .",
-    "ignore": ["dist", "node_modules"]
-  }
-  
+    "env": { "NODE_ENV": "development" },
+    "ignore": ["dist", "node_modules", "test"]
+}

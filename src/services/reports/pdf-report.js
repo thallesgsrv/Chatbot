@@ -1,0 +1,213 @@
+const PDFDocument = require('pdfkit');
+const Format = require('../../shared/format');
+
+const labelSpacing = 80;
+
+function generatePDFReport(doc, problems, startDate, endDate, { logoPath } = {}) {
+    const colors = {
+        primary: '#2C3E50',
+        secondary: '#3498DB',
+        background: '#F8F9FA',
+        border: '#DEE2E6',
+        text: '#495057'
+    };
+
+    let pageNumber = 0;  // Começa com zero
+    const margin = 50;
+    const pageWidth = doc.page.width - 2 * margin;
+
+    problems.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Primeira página é a capa — sem numeração
+    addHeader(doc, pageWidth, margin, colors, logoPath);
+    addSummary(doc, problems, startDate, endDate, margin, pageWidth, colors);
+
+    // Evento: quando adicionar página, incrementa número e coloca no topo
+    doc.on('pageAdded', () => {
+        pageNumber++;
+        addPageNumber(doc, pageNumber, margin);
+        addHeader(doc, pageWidth, margin, colors, logoPath);
+    });
+
+    // Força criar nova página antes de listar os problemas
+    doc.addPage();
+
+    problems.forEach((problem, index) => {
+        problem.sequentialNumber = index + 1;
+        addProblemDetails(doc, problem, margin, pageWidth, colors);
+    });
+}
+
+function addPageNumber(doc, pageNumber, margin) {
+    doc.fontSize(9)
+        .fillColor('#888888')
+        .text(`Página ${pageNumber}`, doc.page.width - margin - 50, margin / 2, {
+            align: 'right',
+            width: 50
+        });
+}
+
+function addHeader(doc, pageWidth, margin, colors, logoPath) {
+    // Caminho absoluto: o antigo 'assets/...' dependia do cwd e falhava no app instalado
+    if (logoPath) {
+        doc.image(logoPath, margin + (pageWidth / 2) - 100, 15, { width: 200, align: 'center' });
+    }
+
+    doc.moveTo(margin, 100)
+        .lineTo(pageWidth + margin, 100)
+        .lineWidth(2)
+        .strokeColor(colors.secondary)
+        .stroke();
+
+    doc.fontSize(20)
+        .fillColor(colors.primary)
+        .font('Helvetica-Bold')
+        .text('Relatório de Atendimentos Técnicos', margin, 110, {
+            width: pageWidth,
+            align: 'center'
+        });
+
+    doc.moveDown(2);
+}
+
+function addSummary(doc, problems, startDate, endDate, margin, pageWidth, colors) {
+    const summaryTop = doc.y;
+
+    doc.rect(margin, summaryTop, pageWidth, 120)
+        .fillColor(colors.background)
+        .fill()
+        .strokeColor(colors.border)
+        .stroke();
+
+    const formattedStartDate = startDate.split('-').reverse().join('/');
+    const formattedEndDate = endDate.split('-').reverse().join('/');
+
+    doc.fontSize(12)
+        .fillColor(colors.text)
+        .text('PERÍODO ANALISADO:', margin + 20, summaryTop + 20)
+        .font('Helvetica-Bold')
+        .text(`${formattedStartDate} - ${formattedEndDate}`, margin + 200, summaryTop + 20);
+
+    const totalMinutes = problems.reduce((acc, curr) => acc + parseInt(curr.duration_minutes), 0);
+    const averageTime = problems.length > 0 ? (totalMinutes / problems.length) : 0;
+
+    const metrics = [
+        { label: 'Total de Atendimentos', value: problems.length },
+        { label: 'Tempo Total (h)', value: (totalMinutes / 60).toFixed(1) },
+        { label: 'Tempo Médio/Atendimento (h)', value: (averageTime / 60).toFixed(1) }
+    ];
+
+    const boxWidth = pageWidth / metrics.length;
+    metrics.forEach((metric, index) => {
+        const x = margin + (index * boxWidth);
+        doc.rect(x, summaryTop + 60, boxWidth - 1, 50)
+            .fillColor(colors.secondary)
+            .fill()
+            .fontSize(14)
+            .fillColor('white')
+            .text(metric.value.toString(), x + 10, summaryTop + 70)
+            .fontSize(9)
+            .text(metric.label.toUpperCase(), x + 10, summaryTop + 90);
+    });
+
+    doc.moveDown(4);
+}
+
+function addProblemDetails(doc, problem, margin, pageWidth, colors) {
+    if (doc.y > doc.page.height - 150) {
+        doc.addPage();
+    }
+
+    const startY = doc.y > margin + 100 ? doc.y : margin + 100;
+
+    doc.fontSize(14)
+        .fillColor(colors.primary)
+        .font('Helvetica-Bold')
+        .text(`ATENDIMENTO #${problem.sequentialNumber}`, margin, startY, { underline: true });
+
+    const duration = parseInt(problem.duration_minutes);
+    const hours = Math.floor(duration / 60);
+    const minutes = duration % 60;
+    const durationText = hours > 0 
+        ? minutes > 0 
+            ? `${hours}h${minutes}min`
+            : `${hours}h`
+        : `${minutes}min`;
+
+    const details = [
+        { label: 'Data:', value: problem.formatted_date },
+        { label: 'Status:', value: getStatusBadge(problem.status) },
+        { label: 'Nome:', value: problem.name },
+        { label: 'Cidade:', value: problem.city },
+        { label: 'Escola:', value: problem.school },
+        { label: 'Cargo:', value: problem.position },
+        { label: 'Atendente:', value: problem.attendant_id },
+        { label: 'Card:', value: formatCardLink(problem.card_link) },
+        { label: 'Status Card:', value: problem.card_status },
+        { label: 'Duração:', value: formatDuration(problem.duration_minutes) }
+    ];
+
+    createDetailGrid(doc, details, margin, doc.y + 15, pageWidth, colors);
+
+    doc.fontSize(12)
+        .fillColor(colors.text)
+        .font('Helvetica-Bold')
+        .text('Descrição do Problema:', margin, doc.y + 30)
+        .font('Helvetica')
+        .fontSize(10)
+        .text(problem.description, margin, doc.y + 5, {
+            width: pageWidth,
+            align: 'justify',
+            lineGap: 5
+        });
+
+    doc.moveTo(margin, doc.y + 20)
+        .lineTo(margin + pageWidth, doc.y + 20)
+        .strokeColor(colors.border)
+        .stroke();
+
+    doc.moveDown(0.5);
+}
+
+function createDetailGrid(doc, items, x, y, width, colors) {
+    const cols = 2;
+    const rowHeight = 20;
+    const colWidth = width / cols;
+
+    items.forEach((item, index) => {
+        const col = index % cols;
+        const row = Math.floor(index / cols);
+        const posX = x + (col * colWidth);
+        const posY = y + (row * rowHeight);
+
+        doc.fontSize(10)
+            .fillColor(colors.text)
+            .font('Helvetica-Bold')  // Texto do label em negrito
+            .text(`${item.label}`, posX, posY)
+            .font('Helvetica')  // Volta para a fonte normal
+            .text(item.value, posX + labelSpacing, posY, {
+                width: colWidth - labelSpacing,
+                ellipsis: true
+            });
+    });
+}
+
+function getStatusBadge(status) {
+    const statusConfig = {
+        'completed': { color: '#28A745', text: 'Concluído' },
+        'active': { color: '#007BFF', text: 'Em Andamento' },
+        'pending': { color: '#DC3545', text: 'Pendente' },
+        'waiting': { color: '#FFC107', text: 'Em Espera' }
+    };
+
+    return statusConfig[status]?.text || status;
+}
+
+function formatCardLink(link) {
+    if (!link || link === 'Não foi necessário') return 'Não foi necessário';
+    return link.length > 30 ? link.substring(0, 27) + '...' : link;
+}
+
+const formatDuration = (minutes) => Format.formatDuration(minutes);
+
+module.exports = { generatePDFReport };

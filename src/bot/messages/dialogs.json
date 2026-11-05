@@ -1,0 +1,8 @@
+{
+    "problemOptions": "Por favor, selecione o tipo de dificuldade que você está enfrentando:\n\n1️⃣ Acesso ao sistema\n2️⃣ Cadastro de aluno/funcionário\n3️⃣ Diário de classe\n4️⃣ Movimentação de Alunos\n5️⃣ Dificuldades com RFACE\n6️⃣ Outro problema",
+    "rfaceContact": "Para suporte do RFACE, entre em contato pelo número: (83) 99608-0051",
+    "videoFeedback": "O vídeo foi suficiente para resolver seu problema? (sim/não)",
+    "describeIssue": "Por favor, descreva detalhadamente a dificuldade que você está enfrentando:",
+    "watchVideo": "Aqui está um vídeo que pode ajudar a resolver seu problema: %s",
+    "feedbackNegative": "Sentimos muito que o vídeo não tenha resolvido. Vamos encaminhar você a um atendente."
+}
