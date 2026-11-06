@@ -99,4 +99,4 @@ async function login(ctx, chatId, cpf) {
     await ctx.say(chatId, cpf);
 }
 
-module.exports = { setup, FakeGateway, login, testConfig };
+module.exports = { setup, FakeGateway, login, testConfig, seedBasics };

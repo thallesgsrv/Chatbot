@@ -9,8 +9,12 @@ import { $ } from '../../shared/dom.js';
 function show(id) {
     const element = document.getElementById(id);
     const modal = bootstrap.Modal.getOrCreateInstance(element);
+    // O Bootstrap ignora hide() enquanto o modal ainda está animando a entrada; um clique rápido em
+    // "Confirmar" deixaria o modal preso aberto. `closeWhenReady` espera a animação terminar.
+    const shown = new Promise((resolve) => element.addEventListener('shown.bs.modal', resolve, { once: true }));
+    const closeWhenReady = async () => { await shown; modal.hide(); };
     modal.show();
-    return { element, modal };
+    return { element, modal, closeWhenReady };
 }
 
 /** @param {string[]} attendantNames  nomes já cadastrados */
@@ -29,7 +33,7 @@ export function askAttendant(attendantNames) {
     const syncOther = () => { otherGroup.hidden = select.value !== 'outro'; };
     syncOther();
 
-    const { element, modal } = show('attendantModal');
+    const { element, closeWhenReady } = show('attendantModal');
 
     return new Promise((resolve) => {
         const finish = (value) => {
@@ -45,7 +49,7 @@ export function askAttendant(attendantNames) {
                 error.hidden = false;
                 return;
             }
-            modal.hide();
+            closeWhenReady();
             finish(name);
         };
         const onHidden = () => finish(null);
@@ -70,7 +74,7 @@ export function askEndChat() {
     error.hidden = true;
     const syncLink = () => { group.hidden = select.value !== 'yes'; };
 
-    const { element, modal } = show('endChatModal');
+    const { element, closeWhenReady } = show('endChatModal');
 
     return new Promise((resolve) => {
         const finish = (value) => {
@@ -87,7 +91,7 @@ export function askEndChat() {
                 error.hidden = false;
                 return;
             }
-            modal.hide();
+            closeWhenReady();
             finish({ cardLink: wantsCard ? link : null });
         };
         const onHidden = () => finish(null);

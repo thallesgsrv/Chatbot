@@ -1,96 +1,93 @@
-# WhatsApp Support Chatbot 🤖
+# iEscolar Bot
 
-An enterprise-grade WhatsApp chatbot system designed for educational institutions, featuring automated technical support, ticket management, and a real-time administrative dashboard.
+Chatbot de suporte para WhatsApp com painel administrativo em tempo real (Electron).
+O bot faz a triagem do usuário (CPF/matrícula → escola), mostra menus de ajuda com vídeos,
+organiza a fila de espera e encaminha os problemas não resolvidos para um atendente humano,
+que acompanha tudo pelo painel.
 
-## 🌟 Overview
+## Requisitos
 
-This system streamlines technical support operations by:
-- Automating support ticket creation and management
-- Providing real-time monitoring and analytics
-- Managing support staff workload
-- Collecting quality metrics and feedback
+- Node.js 20 ou superior
+- PostgreSQL 13+
+- Google Chrome instalado (usado pelo WhatsApp Web via `hydra-bot`)
 
-## 🛠 Technical Stack
+## Como rodar
 
-- **Backend**
-  - Node.js + Express.js
-  - PostgreSQL + Sequelize ORM
-  - WebSocket for real-time communications
-  - WhatsApp Business API integration
-
-- **Frontend**
-  - Chart.js for analytics
-  - Socket.io for real-time updates
-
-## 📋 Features
-
-### Core Functionality
-- **Ticket System**
-  ```
-  PENDING → ACTIVE → WAITING → COMPLETED
-  ```
-- **Queue Management**
-  - Dynamic position tracking
-  - Priority handling
-  - Auto-assignment
-
-### Analytics & Reporting
-- Support quality metrics (1-5 stars)
-- Response time tracking
-- Staff performance monitoring
-- Custom report generation (PDF/Excel)
-
-## ⚙️ Installation
-
-### Prerequisites
 ```bash
-Node.js >= 14.x
-PostgreSQL >= 12
-WhatsApp Business API credentials
-```
-
-### Setup Steps
-```bash
-# 1. Clone repository
-git clone https://github.com/syze77/Chatbot.git
-cd Chatbot
-
-# 2. Install dependencies
 npm install
-
-# 3. Start application
-npm run start   
+cp .env.example .env        # preencha DB_PASS e demais dados do PostgreSQL
+npm start                   # abre o app Electron
 ```
 
-## 🔧 Configuration
+As tabelas são criadas automaticamente na primeira execução (`sequelize.sync()`; nunca altera tabelas existentes).
 
-### Environment Variables
-```env
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=chatbot
-DB_USER=your_user
-DB_PASS=your_password
+| Comando | O que faz |
+| --- | --- |
+| `npm start` | Abre o app (Electron + bot + painel) |
+| `npm run dev` | Igual, reiniciando ao salvar arquivos |
+| `npm run serve` | Só backend + painel, sem Electron: abra a URL exibida no navegador. Com `BOT_ENABLED=false` não abre o WhatsApp |
+| `npm run import:csv -- arquivo.csv` | Importa usuários/escolas de um CSV |
+| `npm test` | Roda os testes (precisa de um PostgreSQL; veja abaixo) |
+| `npm run dist` | Gera o instalador Windows |
+
+### Configuração (`.env`)
+
+Veja [`.env.example`](.env.example). Obrigatório: `DB_PASS`. O arquivo é procurado na pasta atual, na raiz do
+projeto e, no app instalado, em `%APPDATA%\iEscolar Bot\.env`.
+
+> O painel só aceita conexões da própria máquina (`127.0.0.1`). Defina `SERVER_HOST=0.0.0.0` apenas se
+> realmente quiser expô-lo na rede: ele não tem autenticação.
+
+## Estrutura
+
+```
+src/
+├── main/        Processo principal do Electron (janela, IPC, preload)
+├── backend.js   Raiz de composição: liga banco, serviços, bot e servidor
+├── config/      Variáveis de ambiente -> objeto de configuração
+├── database/    Conexão, models e associações (schema idêntico ao anterior)
+├── services/    Regras de negócio e consultas (sem WhatsApp, sem HTTP)
+├── bot/         Tudo que fala com o usuário no WhatsApp
+│   ├── whatsapp-gateway.js   ÚNICO arquivo que conhece o hydra-bot
+│   ├── message-router.js     Decide quem trata cada mensagem
+│   ├── conversation-store.js Em que passo cada conversa está
+│   ├── attendance-coordinator.js  Concluir / promover fila / atendente assume
+│   ├── flows/                Triagem, menu de problemas, avaliação
+│   └── messages/             Textos do bot (.json) e catálogo de problemas
+├── server/      Express + Socket.IO (rotas REST finas, delegam aos serviços)
+├── shared/      Contrato e formatação usados pelo servidor E pela interface
+└── renderer/    Interface (módulos ES; sem CDN, funciona offline)
+    ├── shared/  api, realtime, sidebar, tema, dom (escape de HTML)
+    └── pages/   overview, cards, dashboard, completed, contacts
+test/            Testes de integração e unitários
+scripts/         serve.js, import-users-csv.js
 ```
 
-## 👩‍💻 Development
+### Como uma mensagem é tratada
 
-### Available Scripts
+```
+WhatsApp ─► WhatsAppGateway ─► MessageRouter ─► (Step da conversa) ─► Flow
+                                                                        │
+              Painel ◄── Realtime (Socket.IO) ◄── Services (banco) ◄────┘
+```
+
+O estado de cada conversa é um único `Step` (`PRIVACY → IDENTIFIER → … → MAIN_MENU → … → HUMAN → RATING`)
+em `conversation-store.js`. Para alterar o que o bot diz, edite os `.json` em `src/bot/messages/`;
+para mudar o menu de problemas, edite `problem-catalog.json` (número, rótulo, opções e vídeos no mesmo lugar).
+
+## Testes
+
 ```bash
-npm run dist     # Start build application
-npm start        # Start application
-npm run dev      # Start both with hot reload
+# banco só para testes (os testes recusam rodar em bancos sem "test" no nome)
+createdb chatbot_test
+TEST_DB_PASS=sua_senha npm test
 ```
 
-## 🤝 Contributing
+Variáveis opcionais: `TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_USER`, `TEST_DB_NAME`.
+Os testes sobem o backend completo e conversam com o bot por um gateway falso.
 
-Please read our [Contributing Guidelines](CONTRIBUTING.md) before submitting PRs.
+Mais detalhes sobre o que mudou nesta refatoração: [docs/REFATORACAO.md](docs/REFATORACAO.md).
 
-## 📞 Support
+## Licença
 
-- Technical Issues: [GitHub Issues](https://github.com/syze77/Chatbot/issues)
-- Email Support: gabrielthalles19@gmail.com
-
-## 📄 License
-
-MIT License - [LICENSE](LICENSE)
+MIT
