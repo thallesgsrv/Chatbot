@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <link rel="stylesheet" href="/vendor/bootstrap/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/vendor/inter/400.css">
+    <link rel="stylesheet" href="/vendor/inter/500.css">
+    <link rel="stylesheet" href="/vendor/inter/600.css">
+    <link rel="stylesheet" href="/vendor/inter/700.css">
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
+    <link rel="stylesheet" href="/styles/base.css">
+    <link rel="stylesheet" href="/pages/dashboard/dashboard.css">
+    <link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+    <script src="/common/protocol.js"></script>
+    <script src="/common/format.js"></script>
+    <script src="/vendor/chartjs/chart.umd.js"></script>
+</head>
+<body>
+    <div id="sidebar-container"></div>
+    <div class="content">
+        <div class="header">
+            <button class="toggle-btn" type="button" aria-label="Alternar menu"><i class="fas fa-bars"></i></button>
+            <h2>Dashboard</h2>
+        </div>
+
+        <div class="filter-section mb-4">
+            <div class="filter-container">
+                <div class="filter-group">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label for="clientFilter" class="form-label">Cliente:</label>
+                            <select id="clientFilter" class="form-select">
+                                <option value="">Todos os clientes</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="schoolFilter" class="form-label">Escola:</label>
+                            <select id="schoolFilter" class="form-select">
+                                <option value="">Todas as escolas</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <button class="btn btn-primary w-100 apply-filter-btn" id="applyFilter" type="button">
+                                <i class="fas fa-filter"></i> Aplicar Filtros
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4 mt-4">
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="status-header"><i class="fas fa-chart-line"></i> Problemas por Semana</div>
+                    <div class="chart-container"><canvas id="dailyProblemsChart"></canvas></div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="status-header"><i class="fas fa-chart-pie"></i> Problemas por Mês</div>
+                    <div class="chart-container"><canvas id="monthlyProblemsChart"></canvas></div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="status-header"><i class="fas fa-star"></i> Avaliações</div>
+                    <div class="chart-container"><canvas id="feedbackChart"></canvas></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="report-container">
+            <button class="generate-report-btn" id="openReport" type="button">
+                <i class="fas fa-file-alt"></i> <span>Gerar Relatório</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="overlay" id="reportOverlay">
+        <div class="report-modal">
+            <h3><i class="fas fa-chart-bar"></i> Gerar Relatório</h3>
+            <div class="date-input-group">
+                <label for="startDate">Data Inicial</label>
+                <input type="date" id="startDate" class="form-control">
+            </div>
+            <div class="date-input-group">
+                <label for="endDate">Data Final</label>
+                <input type="date" id="endDate" class="form-control">
+            </div>
+            <div class="format-selection">
+                <label>Formato do Relatório:</label>
+                <div class="format-options">
+                    <label class="format-option">
+                        <input type="radio" name="reportFormat" value="pdf" checked>
+                        <span class="format-icon"><i class="fas fa-file-pdf"></i> PDF</span>
+                    </label>
+                    <label class="format-option">
+                        <input type="radio" name="reportFormat" value="xlsx">
+                        <span class="format-icon"><i class="fas fa-file-excel"></i> Excel</span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-buttons">
+                <button class="cancel-btn" id="cancelReport" type="button"><i class="fas fa-times"></i> Cancelar</button>
+                <button class="generate-btn" id="generateReport" type="button"><i class="fas fa-check"></i> Gerar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script type="module" src="/pages/dashboard/dashboard.js"></script>
+</body>
+</html>

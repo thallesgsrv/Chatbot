@@ -165,8 +165,14 @@ test('contatos: lista do WhatsApp e salvar ignorados', async () => {
     assert.deepEqual((await json('/api/contacts')).ignored, ['5583900000001@c.us']);
     assert.equal(await ctx.backend.services.contacts.isDisabled('5583900000001'), true);
 
+    // ignorado que não está mais no WhatsApp continua listado
+    await send('PUT', '/api/contacts/ignored', { contacts: [{ id: '5583900000001@c.us' }, { id: '5583911111111@c.us', description: 'antigo' }] });
+    const merged = await json('/api/contacts');
+    assert.deepEqual(merged.contacts.map((c) => c.id).sort(), ['5583900000001@c.us', '5583911111111@c.us']);
+    assert.equal(merged.contacts.find((c) => c.id === '5583911111111@c.us').name, 'antigo');
+
     const cleared = await (await send('PUT', '/api/contacts/ignored', { contacts: [] })).json();
-    assert.deepEqual([cleared.added, cleared.removed, cleared.total], [0, 1, 0]);
+    assert.deepEqual([cleared.added, cleared.removed, cleared.total], [0, 2, 0]);
     assert.equal((await send('PUT', '/api/contacts/ignored', { contacts: 'x' })).status, 400);
 });
 

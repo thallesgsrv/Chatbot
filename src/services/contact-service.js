@@ -21,9 +21,13 @@ class ContactService {
         return Boolean(found);
     }
 
+    async listDisabled() {
+        const rows = await this.models.DisableContact.findAll({ attributes: ['telephone', 'description'] });
+        return rows.map((row) => ({ telephone: row.telephone, description: row.description }));
+    }
+
     async listDisabledPhones() {
-        const rows = await this.models.DisableContact.findAll({ attributes: ['telephone'] });
-        return rows.map((row) => row.telephone);
+        return (await this.listDisabled()).map((row) => row.telephone);
     }
 
     /**

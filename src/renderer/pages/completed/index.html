@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atendimentos Concluídos</title>
+    <link rel="stylesheet" href="/vendor/bootstrap/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/vendor/inter/400.css">
+    <link rel="stylesheet" href="/vendor/inter/500.css">
+    <link rel="stylesheet" href="/vendor/inter/600.css">
+    <link rel="stylesheet" href="/vendor/inter/700.css">
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
+    <link rel="stylesheet" href="/styles/base.css">
+    <link rel="stylesheet" href="/pages/completed/completed.css">
+    <link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+    <script src="/common/protocol.js"></script>
+    <script src="/common/format.js"></script>
+</head>
+<body>
+    <div id="sidebar-container"></div>
+
+    <div class="content">
+        <div class="header">
+            <button class="toggle-btn" type="button" aria-label="Alternar menu"><i class="fas fa-bars"></i></button>
+            <h2>Atendimentos Concluídos</h2>
+        </div>
+
+        <div class="filters-section">
+            <div class="filter-group">
+                <label for="filterDate">Filtrar por Data</label>
+                <input type="date" id="filterDate" class="form-control">
+            </div>
+            <div class="filter-group">
+                <label for="filterPosition">Filtrar por Cargo</label>
+                <select id="filterPosition" class="form-control">
+                    <option value="">Todos os cargos</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="filterAttendant">Filtrar por Atendente</label>
+                <select id="filterAttendant" class="form-control">
+                    <option value="">Todos os atendentes</option>
+                </select>
+            </div>
+        </div>
+
+        <div id="completed-list" class="completed-list"></div>
+    </div>
+
+    <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script type="module" src="/pages/completed/completed.js"></script>
+</body>
+</html>

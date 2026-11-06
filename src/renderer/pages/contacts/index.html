@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerenciar Contatos</title>
+    <link rel="stylesheet" href="/vendor/bootstrap/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/vendor/inter/400.css">
+    <link rel="stylesheet" href="/vendor/inter/500.css">
+    <link rel="stylesheet" href="/vendor/inter/600.css">
+    <link rel="stylesheet" href="/vendor/inter/700.css">
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
+    <link rel="stylesheet" href="/styles/base.css">
+    <link rel="stylesheet" href="/pages/contacts/contacts.css">
+    <link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+    <script src="/common/protocol.js"></script>
+    <script src="/common/format.js"></script>
+</head>
+<body>
+    <div id="sidebar-container"></div>
+
+    <div class="content">
+        <div class="header">
+            <h2>Gerenciar Contatos</h2>
+        </div>
+
+        <div class="actions-header">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="searchContact" placeholder="Pesquisar contato...">
+            </div>
+            <div class="button-group">
+                <button id="refreshBtn" class="btn" type="button"><i class="fas fa-sync-alt"></i> Atualizar Lista</button>
+                <button id="saveBtn" class="btn" type="button"><i class="fas fa-save"></i> Salvar Alterações</button>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="status-header" id="activeHeader"><i class="fas fa-users"></i> Contatos Ativos</div>
+                    <div class="card-body"><div class="contacts-list active-contacts"></div></div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="status-header" id="ignoredHeader"><i class="fas fa-user-slash"></i> Contatos Ignorados</div>
+                    <div class="card-body"><div class="contacts-list ignored-contacts"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script type="module" src="/pages/contacts/contacts.js"></script>
+</body>
+</html>

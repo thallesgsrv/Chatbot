@@ -55,8 +55,16 @@ module.exports = function createApiRouter({ services, realtime, gateway }) {
 
     // --- Contatos ignorados --------------------------------------------
     router.get('/contacts', asyncHandler(async (req, res) => {
-        const [all, ignored] = await Promise.all([gateway.listContacts(), contacts.listDisabledPhones()]);
-        res.json({ contacts: all, ignored });
+        const [fromWhatsApp, disabled] = await Promise.all([gateway.listContacts(), contacts.listDisabled()]);
+
+        // Ignorados que não aparecem mais no WhatsApp continuam na lista; senão, ao salvar,
+        // seriam removidos sem o atendente perceber.
+        const known = new Set(fromWhatsApp.map((c) => c.id));
+        const missing = disabled
+            .filter((d) => !known.has(d.telephone))
+            .map((d) => ({ id: d.telephone, name: d.description || d.telephone, number: String(d.telephone).split('@')[0], description: d.description }));
+
+        res.json({ contacts: [...fromWhatsApp, ...missing], ignored: disabled.map((d) => d.telephone) });
     }));
     router.put('/contacts/ignored', asyncHandler(async (req, res) =>
         res.json(await contacts.replaceDisabled((req.body || {}).contacts))));

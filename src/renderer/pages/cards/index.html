@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerenciamento de Cards</title>
+    <link rel="stylesheet" href="/vendor/bootstrap/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/vendor/inter/400.css">
+    <link rel="stylesheet" href="/vendor/inter/500.css">
+    <link rel="stylesheet" href="/vendor/inter/600.css">
+    <link rel="stylesheet" href="/vendor/inter/700.css">
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
+    <link rel="stylesheet" href="/styles/base.css">
+    <link rel="stylesheet" href="/pages/cards/cards.css">
+    <link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+    <script src="/common/protocol.js"></script>
+    <script src="/common/format.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div id="sidebar-container"></div>
+
+    <div class="content">
+        <div class="header">
+            <h2>Gerenciamento de Cards</h2>
+        </div>
+
+        <div class="filter-section mb-4">
+            <div class="filter-container">
+                <div class="filter-group">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label for="statusFilter" class="form-label">Status:</label>
+                            <select id="statusFilter" class="form-select">
+                                <option value="all">Todos os status</option>
+                                <option value="pending">Pendentes</option>
+                                <option value="completed">Concluídos</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="dateFilter" class="form-label">Data:</label>
+                            <input type="date" class="form-control" id="dateFilter">
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <button class="btn btn-primary w-100 apply-filter-btn" id="applyFilter" type="button">
+                                <i class="fas fa-filter"></i> Aplicar Filtros
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="cardsContainer" class="cards-grid"></div>
+    </div>
+
+    <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script type="module" src="/pages/cards/cards.js"></script>
+</body>
+</html>
